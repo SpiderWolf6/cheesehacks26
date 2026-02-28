@@ -26,7 +26,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 
 llm = AzureChatOpenAI(
-    azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini"),
+    azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-mini"),
     azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
     api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
@@ -34,7 +34,7 @@ llm = AzureChatOpenAI(
 )
 
 extraction_llm = AzureChatOpenAI(
-    azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini"),
+    azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-mini"),
     azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
     api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
@@ -142,16 +142,16 @@ page names, and features that were mentioned.
 Respond ONLY with valid JSON, no markdown, no explanation.
 
 Schema:
-{
-  "organization": {
+{{
+  "organization": {{
     "name": "",
     "mission": "",
     "target_audience": "",
     "tone": "",
     "website_goals": []
-  },
+  }},
   "pages": [
-    {
+    {{
       "name": "",
       "purpose": "",
       "audience": "",
@@ -161,9 +161,9 @@ Schema:
       "cta_link_destination": "",
       "media_needed": "",
       "special_sections": []
-    }
+    }}
   ],
-  "features": {
+  "features": {{
     "donation_form": null,
     "recurring_donations": null,
     "volunteer_signup": null,
@@ -175,8 +175,8 @@ Schema:
     "ada_compliance": null,
     "contact_form_fields": [],
     "other": []
-  },
-  "design": {
+  }},
+  "design": {{
     "has_existing_logo": null,
     "brand_colors": [],
     "color_preferences": "",
@@ -184,8 +184,8 @@ Schema:
     "inspiration_sites": [],
     "styles_to_avoid": "",
     "mobile_first": null
-  },
-  "technical": {
+  }},
+  "technical": {{
     "has_domain": null,
     "domain_name": "",
     "hosting_situation": "",
@@ -194,9 +194,9 @@ Schema:
     "site_maintainer": "",
     "budget": "",
     "timeline": ""
-  },
+  }},
   "notes": ""
-}
+}}
 """
 
 # ---------------------------------------------------------------------------

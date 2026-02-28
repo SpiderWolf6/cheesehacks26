@@ -6,6 +6,7 @@ import json
 from typing import Any, Dict
 
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 
 from orchestrator.engine import Orchestrator
 from agents import manager
@@ -17,7 +18,7 @@ from agents import manager
 orchestrator = Orchestrator()
 
 app = Flask(__name__)
-
+CORS(app)
 
 @app.get("/health")
 def health() -> Any:
@@ -214,4 +215,4 @@ def list_sessions() -> Any:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=6000, debug=True)
