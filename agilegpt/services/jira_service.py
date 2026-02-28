@@ -1,128 +1,100 @@
-"""Minimal JIRA service abstraction.
-
-This module provides a simple interface that higher-level agents can call.
-Some methods are intentionally stubbed with TODOs while we finalize workflow.
-"""
-
-from __future__ import annotations
-
-from typing import Any, Dict, Optional
-
+import os
 import requests
 from requests.auth import HTTPBasicAuth
+from dotenv import load_dotenv
+import json
 
-from config import Config
+load_dotenv()
+JIRA_API_KEY = os.getenv("JIRA_API_KEY")
+
+url = "https://evan-cedeno.atlassian.net/rest/api/3/search/jql"
+
+auth = HTTPBasicAuth("escedeno8@gmail.com", JIRA_API_KEY)
+
+headers = {
+  "Accept": "application/json"
+}
+
+query = {
+  'jql': 'project = AgentSpace',
+  'fields': 'key,summary,description,issuetype,assignee,reporter,status,priority,created,updated,duedate,labels,parent,project',
+  'maxResults': 100
+}
 
 
-class JiraService:
-    """Small wrapper around JIRA REST APIs.
+def adf_to_text(node):
+  if node is None:
+    return ""
+  if isinstance(node, dict):
+    if node.get("type") == "text":
+      return node.get("text", "")
+    return "".join(adf_to_text(child) for child in node.get("content", []))
+  if isinstance(node, list):
+    return "".join(adf_to_text(child) for child in node)
+  return ""
 
-    JIRA usually exposes:
-    - Core issue/project APIs under /rest/api/3
-    - Agile sprint APIs under /rest/agile/1.0
-    """
 
-    def __init__(self, config: Config) -> None:
-        self.config = config
-        self.base_url: str = config.JIRA_BASE_URL.rstrip("/")
-        self.auth = HTTPBasicAuth(config.JIRA_EMAIL, config.JIRA_API_TOKEN)
-        self.headers: Dict[str, str] = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
+def clean_issue(issue):
+  fields = issue.get("fields", {})
+  assignee = fields.get("assignee") or {}
+  reporter = fields.get("reporter") or {}
+  issue_type = fields.get("issuetype") or {}
+  status = fields.get("status") or {}
+  priority = fields.get("priority") or {}
+  parent = fields.get("parent") or {}
+  parent_fields = parent.get("fields") or {}
+  project = fields.get("project") or {}
 
-    def _request(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Internal helper to keep HTTP request logic in one place."""
-        url = f"{self.base_url}{path}"
-        response = requests.request(
-            method=method,
-            url=url,
-            headers=self.headers,
-            auth=self.auth,
-            json=payload,
-            timeout=30,
-        )
-        response.raise_for_status()
+  description_value = fields.get("description")
+  description_text = adf_to_text(description_value).strip() if isinstance(description_value, (dict, list)) else (description_value or "")
 
-        if not response.text:
-            return {}
-        return response.json()
+  return {
+    "id": issue.get("id"),
+    "key": issue.get("key"),
+    "type": issue_type.get("name"),
+    "title": fields.get("summary"),
+    "description": description_text,
+    "status": status.get("name"),
+    "priority": priority.get("name"),
+    "assignee": assignee.get("displayName"),
+    "reporter": reporter.get("displayName"),
+    "created": fields.get("created"),
+    "updated": fields.get("updated"),
+    "dueDate": fields.get("duedate"),
+    "labels": fields.get("labels", []),
+    "parent": {
+      "key": parent.get("key"),
+      "title": parent_fields.get("summary"),
+      "type": (parent_fields.get("issuetype") or {}).get("name")
+    } if parent else None,
+    "project": {
+      "key": project.get("key"),
+      "name": project.get("name")
+    }
+  }
 
-    def create_project(self, name: str, key: str) -> Dict[str, Any]:
-        """Create a JIRA project.
 
-        TODO: Confirm project template key and assignee settings for your org.
-        """
-        payload = {
-            "key": key,
-            "name": name,
-            "projectTypeKey": "software",
-            "projectTemplateKey": "com.pyxis.greenhopper.jira:gh-scrum-template",
-        }
-        return self._request("POST", "/rest/api/3/project", payload)
+def build_clean_response(payload):
+  issues = payload.get("issues", [])
+  cleaned = [clean_issue(issue) for issue in issues]
+  return {
+    "isLast": payload.get("isLast"),
+    "count": len(cleaned),
+    "issues": cleaned
+  }
 
-    def create_epic(self, project_key: str, summary: str) -> Dict[str, Any]:
-        """Create an Epic issue in JIRA.
+response = requests.request(
+   "GET",
+   url,
+   headers=headers,
+   params=query,
+   auth=auth
+)
 
-        TODO: Your JIRA instance may use a custom field for Epic Name.
-        """
-        payload = {
-            "fields": {
-                "project": {"key": project_key},
-                "summary": summary,
-                "issuetype": {"name": "Epic"},
-            }
-        }
-        return self._request("POST", "/rest/api/3/issue", payload)
-
-    def create_story(self, project_key: str, summary: str, description: str) -> Dict[str, Any]:
-        """Create a Story issue in JIRA."""
-        payload = {
-            "fields": {
-                "project": {"key": project_key},
-                "summary": summary,
-                "description": description,
-                "issuetype": {"name": "Story"},
-            }
-        }
-        return self._request("POST", "/rest/api/3/issue", payload)
-
-    def create_sprint(self, project_key: str, sprint_name: str) -> Dict[str, Any]:
-        """Create a sprint for a board associated with the project.
-
-        TODO: Discover board ID for project_key in your JIRA instance.
-        """
-        # This is a placeholder board id for scaffold purposes.
-        board_id = 1
-        payload = {
-            "name": sprint_name,
-            "originBoardId": board_id,
-        }
-        return self._request("POST", "/rest/agile/1.0/sprint", payload)
-
-    def add_issue_to_sprint(self, issue_key: str, sprint_id: int) -> Dict[str, Any]:
-        """Add an existing issue to a sprint."""
-        payload = {
-            "issues": [issue_key],
-        }
-        return self._request("POST", f"/rest/agile/1.0/sprint/{sprint_id}/issue", payload)
-
-    def transition_issue(self, issue_key: str, status: str) -> Dict[str, Any]:
-        """Transition an issue to a target status.
-
-        TODO: In real usage, fetch transitions first and map status -> transition id.
-        """
-        # Placeholder transition id. Real code should map this from JIRA transitions API.
-        payload = {
-            "transition": {"id": "31"},
-            "update": {
-                "comment": [
-                    {
-                        "add": {
-                            "body": f"Transition requested to status: {status}",
-                        }
-                    }
-                ]
-            },
-        }
-        return self._request("POST", f"/rest/api/3/issue/{issue_key}/transitions", payload)
+if response.status_code != 200:
+  print(f"Request failed: {response.status_code}")
+  print(response.text)
+else:
+  payload = response.json()
+  clean_payload = build_clean_response(payload)
+  print(json.dumps(clean_payload, indent=2))
