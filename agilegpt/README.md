@@ -11,7 +11,8 @@ This MVP focuses on clean structure, readability, and educational value.
   - `POST /chat` (temporary echo behavior)
 - Loads and validates required environment variables.
 - Defines simple service wrappers for:
-  - Azure OpenAI chat completions
+  - OpenAI chat completions (PM agent)
+  - Azure OpenAI chat completions (Dev agents)
   - JIRA REST API calls (partially stubbed)
 - Defines PM + Dev agent class scaffolding.
 - Defines a basic in-memory orchestrator state and engine.
@@ -45,10 +46,16 @@ agilegpt/
 3. Install dependencies:
 
    ```bash
-   pip install flask requests python-dotenv pydantic
+  pip install -r requirements.txt
    ```
 
 4. Copy `.env.example` to `.env` and fill all required values.
+
+## LLM model routing
+
+- PM agent uses OpenAI o3 (`OPENAI_API_KEY`, `OPENAI_MODEL_O3`).
+- Frontend, Backend, and QA agents use Azure 4.1 (`AZURE_OPENAI_DEPLOYMENT_41`).
+- Azure 4.1 mini is pre-configured as a future option (`AZURE_OPENAI_DEPLOYMENT_41_MINI`).
 
 ## Run
 

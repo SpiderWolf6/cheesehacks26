@@ -15,4 +15,9 @@ class BackendAgent(BaseAgent):
 
     def __init__(self, llm_service: LLMService) -> None:
         system_prompt = "You are the backend developer agent for AgileGPT."
-        super().__init__(name="backend_agent", system_prompt=system_prompt, llm_service=llm_service)
+        super().__init__(
+            name="backend_agent",
+            system_prompt=system_prompt,
+            llm_service=llm_service,
+            model_target="azure_gpt41",
+        )

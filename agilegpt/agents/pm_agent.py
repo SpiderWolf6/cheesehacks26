@@ -20,7 +20,12 @@ class PMAgent(BaseAgent):
             "You are the PM agent for AgileGPT. "
             "You combine Product Owner and Scrum Master responsibilities."
         )
-        super().__init__(name="pm_agent", system_prompt=system_prompt, llm_service=llm_service)
+        super().__init__(
+            name="pm_agent",
+            system_prompt=system_prompt,
+            llm_service=llm_service,
+            model_target="openai_o3",
+        )
 
     def planning_mode(self, context: Dict[str, object]) -> str:
         """Planning mode.

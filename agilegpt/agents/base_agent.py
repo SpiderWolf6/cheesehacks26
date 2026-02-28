@@ -16,12 +16,23 @@ class BaseAgent:
     Structured response enforcement will be added in a later iteration.
     """
 
-    def __init__(self, name: str, system_prompt: str, llm_service: LLMService) -> None:
+    def __init__(
+        self,
+        name: str,
+        system_prompt: str,
+        llm_service: LLMService,
+        model_target: str = "azure_gpt41",
+    ) -> None:
         self.name = name
         self.system_prompt = system_prompt
         self.llm_service = llm_service
+        self.model_target = model_target
 
     def run(self, context: Dict[str, object]) -> str:
         """Serialize context and send it to the LLM."""
         user_content = json.dumps(context, indent=2)
-        return self.llm_service.generate(system_prompt=self.system_prompt, user_content=user_content)
+        return self.llm_service.generate(
+            system_prompt=self.system_prompt,
+            user_content=user_content,
+            model_target=self.model_target,
+        )
