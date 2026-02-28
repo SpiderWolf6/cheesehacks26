@@ -2,3 +2,8 @@ Flask
 requests
 python-dotenv
 pydantic
+langchain
+langchain-openai
+openai
+azure-core
+typing-extensions
