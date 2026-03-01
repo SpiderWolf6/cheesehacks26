@@ -1,9 +1,38 @@
 """Main orchestrator engine for AgileGPT.
 
-Implements the full PM -> Dev Team SCRUM loop:
-1. PM creates sprint plan + writes scrum_plan.json and requirements.txt to workspace
-2. For each sprint: create JIRA sprint + tasks, run agents, PM reviews & adjusts
-3. Agents get task-specific context with persistent memory across sprints
+This is the BRAIN of the entire system. It coordinates the full automated SCRUM cycle:
+
+WHAT IS SCRUM?
+  SCRUM is a project management methodology where work is broken into "sprints"
+  (short work cycles, typically 1-2 weeks in real life). Each sprint has specific
+  tasks, and after each sprint the team reviews what worked and adjusts the plan.
+
+HOW AGILEGPT AUTOMATES THIS:
+  Instead of human developers, we have AI agents (LLM-powered bots) that play
+  each role on the team. The orchestrator coordinates them like a conductor:
+
+  1. PM AGENT plans the project → produces a JSON sprint plan
+  2. For each sprint:
+     a. BACKEND AGENT writes Flask/Python API code
+     b. FRONTEND AGENT writes React/HTML/CSS/JS UI code
+     c. QA AGENT writes and runs tests against the live server
+     d. PM AGENT reviews results and adjusts future sprints if needed
+  3. After all sprints → launches the completed site on localhost:5000
+
+  Each agent operates independently — they only see their assigned task and
+  the shared API contract. The orchestrator handles all the plumbing:
+  creating workspaces, writing files, running commands, managing JIRA tickets,
+  passing context between agents, and tracking progress.
+
+KEY CONCEPTS:
+  - Workspace: An isolated directory with its own Python venv where all generated
+    code lives. Each project gets a fresh workspace.
+  - Shared Contract: A JSON spec defining every API endpoint (path, method,
+    request/response schemas). All agents reference it for consistency.
+  - Agent Memory: The orchestrator tracks what each agent has built across sprints
+    so they can iterate on their own work without starting from scratch.
+  - PM Review: After each sprint, the PM agent examines pass/fail results and
+    can modify future sprint tasks or insert new sprints to fix issues.
 """
 
 from __future__ import annotations
@@ -32,43 +61,101 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_WWF_EARTH_DAY_BRIEF = """
-The client is World Wildlife Fund (WWF-US), a global conservation organization working across 100 countries to protect wildlife, natural systems, and human communities.
+The client is Palestine Children's Relief Fund (PCRF).
 
-Mission: To ensure a planet where people and nature thrive by creating linked and holistic solutions to environmental challenges.
-Vision: A future where nature and people flourish, with conservation that is humane, durable, and science-based.
+Their mission: To provide urgent and long-term medical and humanitarian relief to children in Palestine and the Middle East, ensuring that children receive life-saving medical care regardless of politics or religion.
 
-About WWF-US: WWF focuses on integrated approaches to conservation, sustainable development, and climate resilience, partnering with governments, communities, businesses, and nonprofits to protect endangered species, safeguard oceans, forests, and freshwater systems, and promote sustainable infrastructure and food systems. Headquarters: 1250 24th Street NW, Washington, DC 20037, USA. They primarily serve global communities, Indigenous peoples, governments, businesses, conservation leaders, and supporters committed to environmental sustainability and wildlife conservation.
+About them: PCRF is a nonprofit organization dedicated to delivering critical medical care and humanitarian aid to children in Palestine and the broader Middle East. Founded over 30 years ago, PCRF operates through a global network of volunteers, medical professionals, and chapters to provide emergency relief, medical missions, treatment abroad, and infrastructure development. The organization responds to crises such as the 2023 Gaza war by providing food, medical supplies, emergency clinics, and rebuilding healthcare infrastructure, while also supporting ongoing pediatric cardiac and cancer care. PCRF maintains a 4-star Charity Navigator rating and emphasizes community-centered capacity development and long-term healthcare improvements.
 
-Core Values: Holistic and integrated conservation, science-based solutions, durability and sustainability, community leadership and participation, equity and inclusion, partnership and collaboration, innovation and creativity, integrity and transparency.
+Founded: Over 30 years ago (exact year not specified).
 
-Brand Tone: Professional, hopeful, urgent, community-focused, and collaborative with strong emphasis on science-based and durable conservation solutions.
+Located in Ramallah, West Bank, Palestine; with chapters and offices in the United States, Jordan, Italy, Switzerland, Lebanon, Egypt.
 
-Key Programs & Services include tiger conservation, oceans futures, plastics treaty advocacy, GRID, 30x30, Tribal Buffalo Lifeways, ManglarIA, education and financing initiatives.
+They primarily serve: Children and families in Palestine (Gaza, West Bank), Lebanon, and surrounding regions affected by conflict and humanitarian crises, including displaced, sick, injured, and vulnerable children requiring medical and humanitarian aid..
 
-Build Requirements:
-- Build a visually stunning, modern website using React for the frontend and Flask for the backend API.
-- Communicate mission, vision, programs, impact, leadership, events, and financial transparency clearly.
-- Feature rich visual storytelling with hero sections, image galleries, and interactive elements.
-- Emphasize urgent yet hopeful messaging throughout the design.
-- Make pathways for donations, volunteering, advocacy, and partnerships obvious and accessible.
-- Support global and Indigenous audiences with inclusive design.
-- Easy to navigate with a professional navigation system and smooth scrolling.
-- Integrate interactive tools for donations, email subscriptions, and contact forms.
-- Use a nature-inspired color palette with greens, earth tones, and clean whites.
-- Include smooth animations, transitions, and micro-interactions for a polished feel.
-- Ensure responsive design that works beautifully on mobile, tablet, and desktop.
-- The result should look like a professionally designed website, not a student project.
+Core values: Humanity, Integrity, Resilience, Community-centered support, Non-discrimination, Collaboration, Transparency, Commitment to children’s health and wellbeing.
+
+Brand tone: The tone is resolute, compassionate, community-focused, and hopeful, emphasizing resilience, urgent action, and the unyielding commitment to children’s health and wellbeing despite crisis and adversity..
+
+Key programs/services:
+  - Urgent Response to the Humanitarian Crisis: Emergency medical missions, field hospitals, mobile clinics, direct aid distribution, food parcels, hygiene kits, winter clothing, and sealing off kits to displaced families in Gaza, West Bank, Lebanon, and beyond.
+  - Treatment Abroad Program: Facilitates evacuation and specialized medical care abroad for critically ill children from Gaza and surrounding regions, coordinating care in multiple countries.
+  - Medical Missions: Deploys volunteer medical teams to provide specialized surgical and medical care in Gaza, West Bank, Jordan, and Lebanon.
+  - Humanitarian Programs: Social work initiatives providing non-surgical medical needs, including Monthly Disabled Sponsorship, One-Time Medical Sponsorship, and Gaza Orphan Sponsorship programs.
+  - One-Time Surgical Sponsorship (OTS): Provides urgent, life-saving surgeries across multiple specialties to children facing financial or systemic barriers.
+  - Community-Centered Capacity Development and Infrastructure Projects: Supports healthcare infrastructure development, rehabilitation of clinics and hospitals, and community health projects across Gaza, West Bank, Lebanon, and Jordan.
+  - Pediatric Cardiac Care Support: Supports the Pediatric ICU and Cardiac Department at Palestine Medical Complex with equipment, training, and supplies for heart surgeries and catheterizations.
+  - Pediatric Oncology Care: Sustains pediatric cancer care at Huda Al Masri Pediatric Cancer Department in the West Bank, providing medical treatment and therapeutic support.
+
+Impact stats:
+  - Total Aid Provided (Oct 2023 - Dec 2024): $40,487,335.22
+  - Food Parcels Distributed in Gaza: 3,774
+  - Flour Distributed in Gaza: 385,250 kilograms
+  - Water Delivered in Gaza: 14,657,500 liters
+  - Emergency Medical Missions Deployed in Gaza (2024): 7
+  - Patients Treated in Gaza Medical Points (2024): 11,709
+  - Children Evacuated for Treatment Abroad (2024): 169
+  - One-Time Surgical Sponsorship Cases (2024): 1,024
+  - Monthly Disabled Sponsorship Cases (2024): 815
+  - Gaza Orphan Sponsorship Cases (2024): 2,160
+  - Pediatric Cardiac Surgeries Performed (2024): 137
+  - Pediatric Cardiac Catheterizations (2024): 190
+  - Pediatric Cancer Department Patient Visits (2024): 2,791
+  - Medical Missions Conducted (2024): 23
+  - Surgeries Performed in Medical Missions (2024): 1,505
+
+Leadership:
+  - Vivian Khalaf (Chairwoman of the Board)
+  - Lubna Musa (Chief Executive Officer)
+  - Najib Amer (Director of Finance)
+  - Arnan Bashir (Director of Operations)
+  - Hussein Karakra (Director of Business Development and Relations)
+  - Sarah Alrayyes (Director of Chapter Operations (US))
+  - Alexa Fasheh (US Director of Finance)
+  - Tareq Hailat (Director of Treatment Abroad)
+
+Events: Youth Dabka Training, Women’s Self Defense Seminar, Global Kite Flight, Teach In On Palestine, Hoops for Palestine, Paint for Palestine, All Girls Dabkeh Fundraiser, Gala for Gaza - Youth Initiative, Teaching Tatreez, Benefit Dinners, Tea Time, Palestinian Art Exhibition, Valentine’s Day Teddy Bear Fundraiser, Flowers for Falastin, Tarneeb Night, Letters of Appreciation, Volleyball Tournament, More Than The Miles – Atlanta Runs For PCRF, Annual Benefit Dinners, Battle of the Clubs Volleyball Tournament, Palestinian Culture Night, Cookies on the Plaza, Movie Nights, Ramadan Iftar Dinners, Charity Bake Sale, Volley For Palestine, Art Inspiring Change, Run For Gaza, Marathon Events, Henna Night, Golf Benefit Outing, Summer Picnics, OUD Night For PCRF, Sweets Run-For-Peace, Sahrat Sabaya, Portos for Palestine, Who Dunnit?, Harvest Season Care Package, Global Remembrance Ride for Gaza, BOA Chicago Marathon, Tote-ally for Palestine, Palestine and the Olympic Dream, Moonlight Corn Maze, Healing in Every Thread, Extending an Olive Branch, Dine & Donate Fundraiser for Gaza, Pull-For-Palestine, Soccer Tournament, Fall Fundraiser, Ball for Gaza, LIVE From Palestine US Speaking Tour.
+
+Partners: World Health Organization (WHO), Emergency Medical Teams Coordination Cell (EMTCC), Palestine Ministry of Health (MOH), Samaritan’s Purse, Beit Liqia Municipality, Social Rehabilitation Association at Al Fawwar Camp, Association of Special Needs Parents - Our Children, Al-Amal Association, Palestine Red Crescent Society, Bait Atfal Alsoumod, Social Support Society, HCS, Huda Alshaalan Center, The Southern Society for Special Education, Dallas Chapter (donor), Houston Chapter (donor), Charlotte Chapter (donor), Cultures of Resistance, Childhood Protection Center/PRCS, General Union of Palestinian Women Center, PCRF Chapters and Student Clubs globally.
+
+Financials note: In 2024, PCRF provided over $40 million in aid across Gaza, West Bank, and Lebanon, including nutrition, medical, hygiene, relief supplies, infrastructure, and emergency clinics. The organization maintains a 4-star Charity Navigator rating and effectively leverages both financial and in-kind contributions to maximize impact.
+
+Current website: www.pcrf.net.
+
+Contact: United States: Phone: 330-678-2645, Fax: 330-678-2661, P.O. Box 861716, Los Angeles, CA 90086; Ramallah, West Bank, Palestine: Phone: (970) 2-298-9293, Fax: (970) 2-296-394; Email for donations: giving@pcrf.net; General inquiries: pcrf1@pcrf.net; Media inquiries: media@pcrf.net; Social media: @thePCRF.
+
+Suggested website pages beyond Home & About Us:
+  - Our Programs: To detail the wide range of medical, humanitarian, and infrastructure programs PCRF operates.
+  - Get Involved: To provide information on volunteering, joining chapters or student clubs, and participating in events.
+  - Emergency Response: To highlight PCRF’s urgent relief efforts in Gaza, West Bank, Lebanon, and other crisis areas.
+  - Medical Missions: To showcase the international medical missions and specialized care provided.
+  - Treatment Abroad: To explain the process and impact of evacuating children for specialized medical care abroad.
+  - Impact & Reports: To share detailed impact statistics, annual reports, and financial transparency.
+  - Partners & Supporters: To acknowledge key partners, donors, and collaborators.
 """.strip()
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers — utility functions used by the Orchestrator class below.
+# These handle low-level operations: parsing AI output, managing the workspace
+# filesystem, running shell commands, and starting/stopping the Flask server.
 # ---------------------------------------------------------------------------
 
 def _parse_json(raw: str) -> Optional[Dict[str, Any]]:
     """Try to parse JSON from LLM output, stripping markdown fences if present.
 
-    Also attempts to repair truncated JSON by closing open brackets/braces.
+    WHY THIS EXISTS: AI models sometimes wrap their JSON output in markdown
+    code fences (```json ... ```) or include extra text before/after the JSON.
+    They can also produce truncated JSON if they hit token limits. This function
+    handles all those cases:
+
+    1. First, try parsing the raw text directly as JSON.
+    2. If that fails, strip markdown fences and try again.
+    3. If that fails, find the outermost { } and try parsing just that.
+    4. If that fails, attempt to "repair" truncated JSON by closing any
+       unclosed brackets/braces (e.g., if the AI was cut off mid-output).
+
+    Returns the parsed dict, or None if all parsing attempts fail.
     """
     text = raw.strip()
     if text.startswith("```"):
@@ -140,7 +227,12 @@ def _parse_json(raw: str) -> Optional[Dict[str, Any]]:
 
 
 def _setup_workspace(project_id: str, base_dir: str = "") -> str:
-    """Create an isolated project workspace directory with a venv."""
+    """Create an isolated project workspace directory with its own Python virtual environment.
+
+    Each project gets a completely separate folder (workspaces/<project_id>/) so that
+    different projects don't interfere with each other. The venv ensures the project's
+    Python dependencies (Flask, pytest, etc.) are installed in isolation.
+    """
     if not base_dir:
         base_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "workspaces")
     workspace = os.path.join(base_dir, project_id)
@@ -155,7 +247,11 @@ def _setup_workspace(project_id: str, base_dir: str = "") -> str:
 
 
 def _pip_install(workspace: str, requirements: List[str]) -> None:
-    """Install requirements into the workspace venv."""
+    """Install Python packages into the workspace's virtual environment.
+
+    This runs 'pip install' using the venv's pip, not the system pip.
+    Handles both Windows (Scripts/pip.exe) and Unix (bin/pip) paths.
+    """
     if not requirements:
         return
     venv_path = os.path.join(workspace, ".venv")
@@ -167,7 +263,12 @@ def _pip_install(workspace: str, requirements: List[str]) -> None:
 
 
 def _write_file(workspace: str, relative_path: str, content: str) -> str:
-    """Write a file into the workspace and return the absolute path."""
+    """Write a file into the workspace and return the absolute path.
+
+    Creates any intermediate directories automatically (e.g., routes/ or src/components/).
+    This is how agent-generated code gets written to disk — the orchestrator calls this
+    for every file in the agent's files_to_write response.
+    """
     full_path = os.path.join(workspace, relative_path)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
     with open(full_path, "w", encoding="utf-8") as f:
@@ -176,7 +277,13 @@ def _write_file(workspace: str, relative_path: str, content: str) -> str:
 
 
 def _run_command(workspace: str, cmd: str, timeout: int = 60) -> Dict[str, Any]:
-    """Run a shell command inside the workspace using the workspace venv."""
+    """Run a shell command inside the workspace using the workspace's virtual environment.
+
+    This is how agent-requested commands (like 'pytest tests/') get executed.
+    The command runs with the venv activated so it has access to installed packages.
+    Returns a dict with returncode, stdout, and stderr for result tracking.
+    Output is truncated to last 2000 chars to avoid memory issues with verbose output.
+    """
     venv_path = os.path.join(workspace, ".venv")
     env = os.environ.copy()
     if os.name == "nt":
@@ -202,7 +309,16 @@ def _run_command(workspace: str, cmd: str, timeout: int = 60) -> Dict[str, Any]:
 
 
 def _scan_workspace_files(workspace: str) -> Dict[str, str]:
-    """Scan workspace directory for source files. Returns relative_path -> content."""
+    """Scan the workspace directory and read all source files into memory.
+
+    Returns a dict of {relative_path: file_content} for every source file found.
+    This is how the orchestrator gives agents up-to-date context about what code
+    already exists in the workspace — each agent receives the relevant files
+    from this scan so it can build on top of previous work.
+
+    Skips non-source directories (.venv, node_modules, __pycache__) and files
+    larger than 50KB to avoid overwhelming agent context windows.
+    """
     files: Dict[str, str] = {}
     skip_dirs = {'.venv', '__pycache__', 'node_modules', '.git'}
     source_exts = {'.py', '.js', '.jsx', '.html', '.css', '.json', '.txt', '.md'}
@@ -224,7 +340,15 @@ def _scan_workspace_files(workspace: str) -> Dict[str, str]:
 
 
 def _start_backend(workspace: str) -> Optional[subprocess.Popen]:
-    """Start the Flask backend in the workspace. Returns the process or None."""
+    """Start the Flask backend server in the workspace as a background process.
+
+    The orchestrator starts the backend BEFORE running QA tasks so that
+    integration tests can make HTTP requests to http://localhost:5000.
+    Also used at the end to launch the completed site for the user to browse.
+
+    Returns the process handle (so we can stop it later) or None if startup failed.
+    Waits 3 seconds after launch to give Flask time to initialize.
+    """
     app_path = os.path.join(workspace, "app.py")
     if not os.path.exists(app_path):
         logger.warning("No app.py found in workspace, cannot start backend")
@@ -260,7 +384,11 @@ def _start_backend(workspace: str) -> Optional[subprocess.Popen]:
 
 
 def _stop_backend(proc: Optional[subprocess.Popen]) -> None:
-    """Stop a running backend process."""
+    """Gracefully stop a running Flask backend process.
+
+    First tries terminate (SIGTERM), then kills (SIGKILL) if it doesn't stop
+    within 5 seconds. Called after QA tests complete and when shutting down the site.
+    """
     if proc is None:
         return
     try:
@@ -275,11 +403,16 @@ def _stop_backend(proc: Optional[subprocess.Popen]) -> None:
 
 
 def _classify_task(description: str) -> str:
-    """Return 'backend', 'frontend', or 'qa' based on task description prefix.
+    """Determine which agent should handle a task based on its description.
 
     The PM agent is instructed to start every task description with exactly
-    'backend', 'frontend', or 'integration'. We check the first word and
-    fall back to keyword scanning if the prefix is missing.
+    'backend', 'frontend', or 'integration'. This function reads that first
+    word to route the task to the correct agent.
+
+    Returns 'backend', 'frontend', 'qa', or 'unknown'.
+
+    Falls back to keyword scanning if the PM's formatting drifted (e.g., if
+    it said "Flask API" instead of starting with "backend").
     """
     first_word = description.strip().split()[0].lower() if description.strip() else ""
     if first_word == "backend":
@@ -300,47 +433,72 @@ def _classify_task(description: str) -> str:
 
 
 def _jira_role(agent_type: str) -> str:
-    """Map agent type to JIRA role prefix."""
+    """Map an agent type to the corresponding JIRA role label for ticket assignment."""
     return {"backend": "backend", "frontend": "frontend", "qa": "tester"}.get(agent_type, "")
 
 
 # ---------------------------------------------------------------------------
-# Orchestrator
+# Orchestrator — the main coordinator class that runs the entire SCRUM cycle.
+#
+# Think of this as the "project manager's manager" — it tells the PM agent
+# to plan, tells each dev agent to build their piece, checks results, and
+# manages all the infrastructure (files, commands, JIRA) in between.
 # ---------------------------------------------------------------------------
 
 class Orchestrator:
     """Coordinates the full PM -> Agent SCRUM cycle.
 
-    Flow:
-    1. start_project()      - set up workspace, initialize state
-    2. run_planning()        - PM creates full sprint plan, writes to workspace, creates Sprint 1 on JIRA
-    3. run_all_sprints()     - main loop: for each sprint, run agents, PM reviews, create next sprint
+    This is the main class you interact with. The typical usage is:
+      orchestrator = Orchestrator()
+      result = orchestrator.run_full_pipeline("my-project", "Build a donation website for...")
+
+    That single call will:
+    1. Create an isolated workspace with a Python venv
+    2. Ask the PM agent to plan 5 sprints (up to 7 max if PM adds sprints)
+    3. Execute each sprint (backend → frontend → QA agents)
+    4. Have the PM review results after each sprint and adjust the plan
+    5. Launch the completed site on http://localhost:5000
+
+    The class holds references to all four agents, the JIRA client, and
+    a dict of active project states (so multiple projects could run in theory).
     """
 
     def __init__(self) -> None:
+        # Load configuration (API keys, model settings, etc.).
         self.config = Config()
+        # Create the LLM service — this is the shared connection to the AI provider
+        # (e.g., Azure OpenAI) that all agents use to make their AI calls.
         self.llm_service = LLMService(self.config)
 
-        # JIRA
+        # JIRA integration — used to create sprints and tasks on the JIRA board
+        # so the project's progress is visible in a real project management tool.
         self.jira_client: JiraClient = create_client_from_env()
         self.jira_issues = Issues(self.jira_client)
         self.jira_sprints = Sprints(self.jira_client)
 
-        # Agents
-        self.pm_agent = PMAgent(self.llm_service)
-        self.frontend_agent = FrontendAgent(self.llm_service)
-        self.backend_agent = BackendAgent(self.llm_service)
-        self.qa_agent = QAAgent(self.llm_service)
+        # Initialize all four AI agents. Each gets the same LLM service but has
+        # its own system prompt that defines its role and behavior.
+        self.pm_agent = PMAgent(self.llm_service)           # Plans sprints and reviews results
+        self.frontend_agent = FrontendAgent(self.llm_service)  # Writes React/HTML/CSS/JS
+        self.backend_agent = BackendAgent(self.llm_service)    # Writes Flask/Python API code
+        self.qa_agent = QAAgent(self.llm_service)              # Writes and runs tests
 
+        # Active projects — tracks state for each running project by project ID.
         self.active_projects: Dict[str, ProjectState] = {}
+        # Background Flask processes — tracks running site servers for cleanup.
         self._site_processes: Dict[str, subprocess.Popen] = {}
 
     # ------------------------------------------------------------------
-    # 1. Project initialization
+    # 1. Project initialization — creates the workspace on disk.
+    # This is always the FIRST step: set up a clean directory for the project.
     # ------------------------------------------------------------------
 
     def start_project(self, project_id: str, clarified_story: str) -> ProjectState:
-        """Create workspace, venv, and initial project state."""
+        """Create the project workspace, venv, and initial state tracking object.
+
+        The clarified_story is the finalized user requirement (from the manager agent's
+        review process) that tells the PM agent what website to build.
+        """
         workspace = _setup_workspace(project_id)
         state = ProjectState(
             project_id=project_id,
@@ -352,16 +510,26 @@ class Orchestrator:
         return state
 
     # ------------------------------------------------------------------
-    # 2. Planning phase
+    # 2. Planning phase — the PM agent creates the full sprint roadmap.
+    # This happens ONCE at the start, producing the entire plan that
+    # guides all subsequent sprint execution.
     # ------------------------------------------------------------------
 
     def run_planning(self, project_id: str) -> Dict[str, Any]:
-        """PM creates the full sprint plan.
+        """Ask the PM agent to create the full sprint plan for this project.
 
-        - Writes scrum_plan.json to workspace
-        - Writes requirements.txt to workspace
-        - Creates Sprint 1 tasks + sprint on JIRA
-        - Returns the parsed plan dict
+        This is the second step in the pipeline. The PM agent receives the
+        clarified user story and produces a comprehensive JSON plan containing:
+        - 5 sprints with 3 tasks each (backend, frontend, QA)
+        - A shared API contract defining every endpoint
+        - A handoff contract mapping endpoints to files and tests
+        - A list of Python requirements to install
+
+        After the PM returns the plan, this method:
+        1. Parses the JSON and stores it in project state
+        2. Writes scrum_plan.json and requirements.txt to the workspace
+        3. Installs Python packages into the workspace venv
+        4. Creates the first sprint on JIRA with its 3 tasks
         """
         state = self.active_projects[project_id]
 
@@ -409,14 +577,20 @@ class Orchestrator:
         return plan
 
     # ------------------------------------------------------------------
-    # 3. Main sprint loop
+    # 3. Main sprint loop — executes all sprints one by one.
+    # This is the core execution engine. For each sprint:
+    #   1. Run backend agent → frontend agent → QA agent (in that order)
+    #   2. PM reviews results and may adjust future sprints
+    #   3. Create the next sprint on JIRA
+    #   4. Repeat until all sprints are done
     # ------------------------------------------------------------------
 
     def run_all_sprints(self, project_id: str) -> List[Dict[str, Any]]:
-        """Execute all sprints sequentially. Returns results per sprint.
+        """Execute all planned sprints sequentially. Returns results per sprint.
 
-        Uses a while loop instead of for-range because the PM review step
-        may insert additional sprints, changing state.total_sprints mid-run.
+        Uses a while loop (not for-range) because the PM review step may INSERT
+        additional sprints mid-run, changing state.total_sprints dynamically.
+        This is the adaptive nature of SCRUM — the plan evolves based on results.
         """
         state = self.active_projects[project_id]
         all_results = []
@@ -430,10 +604,15 @@ class Orchestrator:
             sprint_result = self._run_single_sprint(state, sprint_idx)
             all_results.append(sprint_result)
 
-            # PM reviews completed sprint and adjusts future tasks.
+            # After the sprint completes, the PM reviews results and adjusts future tasks.
+            # This is the "inspect and adapt" step in SCRUM — if something broke, the PM
+            # can modify upcoming sprint tasks to fix it, or even insert a new sprint.
+            # Skip this for the last sprint since there's nothing left to adjust.
             if sprint_idx < state.total_sprints - 1:
                 self._pm_review_and_adjust(state, sprint_idx)
-                # total_sprints may have changed if PM inserted a sprint.
+                # total_sprints may have changed if PM inserted a sprint during review.
+                # Fetch the next sprint's data (which may be a newly inserted sprint)
+                # and create it on JIRA.
                 next_sprint_data = state.sprint_plan["sprints"][sprint_idx + 1]
                 self._create_jira_sprint(state, sprint_index=sprint_idx + 1, sprint_data=next_sprint_data)
 
@@ -449,11 +628,13 @@ class Orchestrator:
         return self._run_single_sprint(state, sprint_index)
 
     # ------------------------------------------------------------------
-    # Internal: single sprint execution
+    # Internal: single sprint execution — the heart of the engine.
+    # Each sprint runs 3 tasks in order: backend → frontend → QA.
+    # The backend server is started before QA so tests can hit it.
     # ------------------------------------------------------------------
 
     def _run_single_sprint(self, state: ProjectState, sprint_index: int) -> Dict[str, Any]:
-        """Execute one sprint: call each agent for their task, collect results."""
+        """Execute one sprint: assign each task to its agent, collect results, update JIRA."""
         sprints = state.sprint_plan.get("sprints", [])
         if sprint_index >= len(sprints):
             return {"error": f"Sprint index {sprint_index} out of range"}
@@ -472,7 +653,10 @@ class Orchestrator:
 
         results: Dict[str, Any] = {"sprint": sprint_index + 1, "tasks": {}}
 
-        # Execute tasks in order: backend -> frontend -> qa.
+        # Sort tasks so they execute in the correct order: backend first (0),
+        # then frontend (1), then QA/integration (2). This ensures the backend
+        # API is built before the frontend tries to call it, and both are built
+        # before QA tests run against them.
         ordered_tasks = sorted(tasks, key=lambda t: {
             "backend": 0, "frontend": 1, "integration": 2, "qa": 2
         }.get(_classify_task(t.get("description", "")), 3))
@@ -483,7 +667,9 @@ class Orchestrator:
             task_id = task.get("id", "")
             task_name = task.get("name", "")
 
-            # Start backend server before QA tasks so integration tests can hit it.
+            # Start the Flask backend server BEFORE QA tasks run.
+            # QA tests make HTTP requests to localhost:5000, so the server must be live.
+            # We only start it once (when we encounter the first QA task).
             if task_type == "qa" and backend_proc is None:
                 backend_proc = _start_backend(state.workspace_path)
 
@@ -524,11 +710,28 @@ class Orchestrator:
         return results
 
     # ------------------------------------------------------------------
-    # Internal: agent execution
+    # Internal: agent execution — sends a task to the right AI agent.
+    # This is where the magic happens: the orchestrator packages up all
+    # the context an agent needs, calls the AI, parses its response,
+    # writes files to disk, runs commands, and tracks results.
     # ------------------------------------------------------------------
 
     def _run_agent_for_task(self, state: ProjectState, task: Dict, task_type: str) -> Dict[str, Any]:
-        """Call the appropriate agent with full context including memory."""
+        """Call the appropriate AI agent with full context and process its output.
+
+        The flow:
+        1. Select the right agent (backend, frontend, or QA) based on task_type
+        2. Load the agent's memory (what it built in previous sprints)
+        3. Scan the workspace for current files on disk
+        4. Filter files relevant to this agent (backend sees .py, frontend sees .html/.css/.js, QA sees all)
+        5. Package everything into a context dict and send it to the AI
+        6. Parse the AI's JSON response
+        7. Write any files the AI produced to the workspace
+        8. Run any commands the AI requested (e.g., pytest)
+        9. Update the agent's memory with what it just did
+        10. Return success/failure and a summary
+        """
+        # Look up which agent handles this task type.
         agent_map = {
             "backend": self.backend_agent,
             "frontend": self.frontend_agent,
@@ -538,13 +741,18 @@ class Orchestrator:
         if not agent:
             return {"success": False, "summary": f"Unknown task type: {task_type}"}
 
-        # Build agent-specific memory.
+        # Load this agent's persistent memory — what files it wrote previously
+        # and a log of its prior work. This lets the agent "remember" across sprints.
         memory = state.agent_memory.get(agent.name, AgentMemory())
 
-        # Scan actual workspace files for accurate, up-to-date context.
+        # Scan the actual workspace directory for the latest file contents.
+        # This is more reliable than relying on memory alone, because other agents
+        # may have written files too (e.g., backend agent's app.py is needed by QA).
         workspace_files = _scan_workspace_files(state.workspace_path)
 
-        # Filter files relevant to this agent type to reduce context size.
+        # Filter files to only show this agent what's relevant to its role.
+        # This reduces context size and prevents agents from being confused by
+        # code outside their expertise (e.g., backend agent doesn't need to see CSS).
         if task_type == "backend":
             relevant_files = {p: c for p, c in workspace_files.items()
                               if p.endswith('.py') and not p.startswith('tests/')}
@@ -556,7 +764,9 @@ class Orchestrator:
         else:
             relevant_files = workspace_files
 
-        # Build context the agent receives.
+        # Build the full context dict that the agent will receive as input.
+        # This is everything the agent needs to do its job: the task description,
+        # the API contract to follow, existing code to build on, and its own work history.
         context = {
             "project_id": state.project_id,
             "current_sprint": state.current_sprint,
@@ -565,6 +775,9 @@ class Orchestrator:
             "shared_contract": state.shared_contract,
             "handoff_contract": state.handoff_contract,
             # Workspace files: actual content from disk, filtered by agent role.
+            # current_files lets the agent see and copy existing code to preserve it.
+            # workspace_file_listing shows ALL files so the agent knows what exists.
+            # previous_work gives the agent a summary of what it did in past sprints.
             "project_state_summary": {
                 "current_files": relevant_files,
                 "workspace_file_listing": sorted(workspace_files.keys()),
@@ -572,18 +785,25 @@ class Orchestrator:
             },
         }
 
+        # Send the context to the AI agent and get its response.
+        # This is the actual LLM call — the agent reads its system prompt + this context
+        # and returns a JSON string with files to write and commands to run.
         try:
             raw_output = agent.run(context)
         except Exception as e:
             logger.error("Agent %s failed with error: %s", agent.name, e)
             return {"success": False, "summary": f"Agent error: {e}"}
 
+        # Parse the AI's response from raw text into a Python dict.
+        # If the AI returned malformed JSON, we log the error and report failure.
         parsed = _parse_json(raw_output)
         if not parsed:
             logger.error("Agent %s returned invalid JSON:\n%s", agent.name, raw_output[:500])
             return {"success": False, "summary": "Agent returned invalid JSON", "raw": raw_output[:500]}
 
-        # Write files to workspace.
+        # Write every file the agent produced to the workspace on disk.
+        # The agent returns complete file contents (not patches), so each write
+        # creates or fully replaces the file at that path.
         files_written = {}
         for file_entry in parsed.get("files_to_write", []):
             path = file_entry.get("path", "")
@@ -593,7 +813,9 @@ class Orchestrator:
                 files_written[path] = content
                 logger.info("    Wrote: %s", path)
 
-        # Run commands in workspace (skip server-start commands that would block).
+        # Run any commands the agent requested (e.g., "python -m pytest tests/").
+        # Skip server-start commands (like "python app.py") because the orchestrator
+        # manages the Flask server lifecycle separately — running it here would block.
         server_patterns = ["python app.py", "flask run", "python -m flask", "uvicorn", "gunicorn"]
         cmd_results = []
         for cmd in parsed.get("commands_to_run", []):
@@ -607,13 +829,16 @@ class Orchestrator:
             result = _run_command(state.workspace_path, cmd_stripped)
             cmd_results.append({"cmd": cmd_stripped, **result})
 
-        # Update agent memory.
+        # Update the agent's persistent memory with what it just did.
+        # This ensures the next sprint has an accurate record of this agent's work.
         memory.files_written.update(files_written)
         work_summary = f"Sprint {state.current_sprint}: {task.get('name', 'unknown')} - wrote {list(files_written.keys())}"
         memory.work_log.append(work_summary)
         state.agent_memory[agent.name] = memory
 
-        # Determine success from command results (if any commands ran).
+        # Determine if the agent's work was successful based on command exit codes.
+        # If pytest returned non-zero, the tests failed and the task is marked FAILED.
+        # Tasks with no commands (e.g., frontend agent only writes files) default to success.
         success = True
         if cmd_results:
             success = all(r["returncode"] == 0 for r in cmd_results)
@@ -631,15 +856,27 @@ class Orchestrator:
         }
 
     # ------------------------------------------------------------------
-    # Internal: PM review between sprints
+    # Internal: PM review between sprints — the adaptive feedback loop.
+    # After each sprint (except the last), the PM agent examines what
+    # passed and failed, and adjusts future sprint tasks accordingly.
+    # This is what makes the system "agile" — the plan evolves with results.
     # ------------------------------------------------------------------
 
     def _pm_review_and_adjust(self, state: ProjectState, completed_sprint_index: int) -> None:
-        """PM reviews sprint results and adjusts future sprint tasks if needed."""
+        """Have the PM agent review a completed sprint and adjust the remaining plan.
+
+        The PM can take three actions:
+        1. "unchanged" — everything went well, proceed as planned
+        2. "modified_future_sprints" — update task descriptions in upcoming sprints
+           (e.g., fix a broken endpoint path, add missing preservation instructions)
+        3. "insert_sprint" — add a brand new sprint to handle critical issues
+           (only allowed if total sprints < 10)
+        """
         completed_sprint = state.sprint_plan["sprints"][completed_sprint_index]
         sprint_record = state.sprint_records[completed_sprint_index]
 
-        # Build task statuses for PM review.
+        # Build a summary of how each task in the completed sprint went (DONE/FAILED).
+        # This gives the PM agent concrete data to evaluate the sprint's success.
         task_statuses = []
         for task in completed_sprint.get("tasks", []):
             tid = task.get("id", "")
@@ -650,7 +887,9 @@ class Orchestrator:
                 "status": sprint_record.task_results.get(tid, "UNKNOWN"),
             })
 
-        # Build context for PM review.
+        # Build the full review context for the PM agent.
+        # Includes: what sprint just completed, the full plan, the API contract,
+        # and what each agent has built so far (files and recent work summaries).
         review_context = {
             "project_id": state.project_id,
             "current_sprint": completed_sprint_index + 1,
@@ -662,7 +901,8 @@ class Orchestrator:
             },
             "full_plan": state.sprint_plan,
             "shared_contract": state.shared_contract,
-            # Show PM what each agent has built so far.
+            # Show the PM what each agent has built so far — file names and recent work.
+            # This lets the PM reference exact file paths when updating future task descriptions.
             "agent_state": {
                 name: {
                     "files": list(mem.files_written.keys()),
@@ -672,6 +912,7 @@ class Orchestrator:
             },
         }
 
+        # Send the review context to the PM agent and parse its response.
         raw_output = self.pm_agent.review_mode(review_context)
         review = _parse_json(raw_output)
 
@@ -679,7 +920,11 @@ class Orchestrator:
             logger.warning("PM review returned invalid JSON, skipping adjustments")
             return
 
+        # Process the PM's decision.
         action = review.get("action", "unchanged")
+
+        # ACTION: "modified_future_sprints" — PM updated task descriptions for upcoming sprints.
+        # We apply these changes to the plan, but ONLY for future sprints (never rewrite history).
         if action == "modified_future_sprints" and "updated_plan" in review:
             updated_plan = review["updated_plan"]
             # Only update future sprints, preserve completed ones.
@@ -695,7 +940,9 @@ class Orchestrator:
 
             logger.info("PM adjusted future sprints after Sprint %d", completed_sprint_index + 1)
 
-        elif action == "insert_sprint" and state.total_sprints < 5:
+        # ACTION: "insert_sprint" — PM wants to add a new sprint to fix critical issues.
+        # Only allowed if we haven't hit the 7-sprint maximum (5 planned + 2 flexibility).
+        elif action == "insert_sprint" and state.total_sprints < 7:
             new_sprint = review.get("new_sprint")
             if new_sprint and isinstance(new_sprint, dict):
                 insert_at = completed_sprint_index + 1
@@ -709,20 +956,31 @@ class Orchestrator:
             else:
                 logger.warning("PM requested insert_sprint but provided no valid new_sprint data")
 
-        elif action == "insert_sprint" and state.total_sprints >= 5:
-            logger.warning("PM requested insert_sprint but already at max 5 sprints, ignoring")
+        # Guard: reject sprint insertion if we're already at the maximum.
+        elif action == "insert_sprint" and state.total_sprints >= 7:
+            logger.warning("PM requested insert_sprint but already at max 7 sprints, ignoring")
 
         # Write updated plan to disk.
         _write_file(state.workspace_path, "scrum_plan.json",
                      json.dumps(state.sprint_plan, indent=2))
 
     # ------------------------------------------------------------------
-    # Internal: JIRA operations
+    # Internal: JIRA operations — creates sprints and tasks on the JIRA board.
+    # This keeps the real JIRA board in sync with the automated SCRUM cycle
+    # so stakeholders can see progress in their project management tool.
     # ------------------------------------------------------------------
 
     def _create_jira_sprint(self, state: ProjectState, sprint_index: int,
                             sprint_data: Dict[str, Any]) -> None:
-        """Create a JIRA sprint with its 3 tasks."""
+        """Create a JIRA sprint with its 3 tasks (backend, frontend, QA).
+
+        Steps:
+        1. Create individual JIRA task tickets for each of the 3 tasks
+        2. Create a JIRA sprint and add all 3 tasks to it
+        3. Map the internal plan task IDs to JIRA task IDs for future updates
+        If JIRA creation fails, we log the error but continue — JIRA is nice-to-have,
+        not a blocker for the actual sprint execution.
+        """
         tasks = sprint_data.get("tasks", [])
         sprint_name = sprint_data.get("name", f"Sprint {sprint_index + 1}")
 
@@ -775,11 +1033,21 @@ class Orchestrator:
         return record
 
     # ------------------------------------------------------------------
-    # Convenience: run the full pipeline
+    # Convenience: run the full pipeline end-to-end in one call.
+    # This is the main entry point most users will use.
     # ------------------------------------------------------------------
 
     def run_full_pipeline(self, project_id: str, clarified_story: str) -> Dict[str, Any]:
-        """One-shot: start project -> plan -> execute all sprints -> launch site."""
+        """One-shot: start project -> plan -> execute all sprints -> launch site.
+
+        This method chains together all the steps:
+        1. start_project() — create workspace and venv
+        2. run_planning() — PM creates the sprint plan
+        3. run_all_sprints() — execute every sprint with all agents
+        4. launch_site() — start the Flask server for the user to browse
+
+        Returns a dict with the project ID, workspace path, plan, and sprint results.
+        """
         self.start_project(project_id, clarified_story)
         plan = self.run_planning(project_id)
         sprint_results = self.run_all_sprints(project_id)
@@ -796,16 +1064,18 @@ class Orchestrator:
         return result
 
     # ------------------------------------------------------------------
-    # End-of-SCRUM: launch site on localhost
+    # End-of-SCRUM: launch the completed site on localhost for the user.
+    # After all sprints are done, this starts the Flask server so the user
+    # can open http://localhost:5000 and see their finished website.
     # ------------------------------------------------------------------
 
     def launch_site(self, project_id: str) -> Optional[subprocess.Popen]:
         """Start the completed site on localhost:5000 for the user to browse.
 
-        Called automatically at the end of run_full_pipeline. Can also be
-        called standalone after run_all_sprints. The Flask process runs in
+        Called automatically at the end of run_full_pipeline(). Can also be
+        called standalone after run_all_sprints(). The Flask process runs in
         the background and stays alive until stop_site() is called or the
-        Orchestrator is garbage-collected.
+        orchestrator is garbage-collected.
         """
         state = self.active_projects[project_id]
         workspace = state.workspace_path

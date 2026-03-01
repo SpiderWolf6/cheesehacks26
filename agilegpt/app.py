@@ -174,7 +174,7 @@ def confirm_and_handoff(session_id: str) -> Any:
     # immediately and the frontend can start polling /pipeline/status.
     def run_pipeline() -> None:
         try:
-            orch.run_full_pipeline(session_id, pm_context)
+            orch.run_full_pipeline("My Project", pm_context)
         except Exception as exc:
             import logging
             logging.getLogger(__name__).error("Pipeline error for %s: %s", session_id, exc)

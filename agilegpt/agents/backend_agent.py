@@ -1,4 +1,25 @@
-"""Backend development agent scaffold."""
+"""Backend Agent — the backend developer AI agent.
+
+This agent acts as a senior backend engineer. When the orchestrator assigns it a
+backend task (e.g., "build the donations API endpoint"), it:
+1. Reads the task description and existing code from its context
+2. Generates complete Python/Flask source files that implement the task
+3. Returns the files and any commands to run (e.g., pip install)
+
+The agent does NOT run the code itself — it returns JSON with file paths and contents,
+and the orchestrator writes those files to the project workspace and executes commands.
+
+Key design: The agent receives the FULL content of existing files in its context so it
+can build on top of previous sprints' work. Its system prompt strictly forbids dropping
+existing code — it must preserve all prior work and only add new functionality.
+
+The system prompt below is the backend engineer's "instruction manual." It covers:
+- Flask best practices (Blueprints, CORS, route patterns)
+- Data persistence rules (CSV files in data/ directory for all form submissions)
+- Modular architecture (app.py as entry point, routes/ for features)
+- Shared contract compliance (endpoints must match the PM's API spec exactly)
+- Iterative build rules (never overwrite previous sprints' code)
+"""
 
 from __future__ import annotations
 
@@ -7,9 +28,23 @@ from services.llm_service import LLMService
 
 
 class BackendAgent(BaseAgent):
-    """Represents the backend-focused developer agent."""
+    """The backend developer agent — generates Flask/Python server code.
+
+    This agent is stateless per call — all context (existing code, task details,
+    API contracts) is passed in via the context dict each time run() is called.
+    Agent memory (what files it wrote previously) is managed by the orchestrator
+    and included in the context.
+
+    The agent returns JSON with:
+    - files_to_write: [{path, content}] — complete file contents to write to disk
+    - commands_to_run: [string] — shell commands to execute (e.g., pip install)
+    - explanation: string — summary of what was done (used for logging and PM review)
+    """
 
     def __init__(self, llm_service: LLMService) -> None:
+        # The system prompt defines exactly how this AI should behave as a backend engineer.
+        # It covers Flask patterns, data persistence, file architecture, and strict boundaries
+        # (e.g., never write frontend code, never invent extra endpoints).
         system_prompt = """
 You are an elite Senior Backend Engineer with deep expertise in Python, Flask, and RESTful API design.
 You write production-grade, clean, well-structured backend code that follows industry best practices.
@@ -45,6 +80,20 @@ FLASK BEST PRACTICES:
 - Group related routes together in the file with comment separators.
 - Use helper functions for shared logic (validation, data transformation).
 - For file-based storage, use a data/ directory and handle FileNotFoundError gracefully.
+
+DATA PERSISTENCE (CRITICAL):
+- Whenever the frontend has a form that submits user data (donations, signups, contact forms, members, RSVPs, newsletters, etc.), the backend MUST have a corresponding POST endpoint that persists that data to a CSV file in a data/ directory (e.g., data/donations.csv, data/members.csv, data/contacts.csv).
+- Use Python's built-in csv module. Pattern: open the CSV in append mode ("a"), use csv.DictWriter, write the header row only if the file is new/empty (check with os.path.exists and os.path.getsize), then append the new row.
+- Always generate a unique ID for each record (use str(uuid4()) or incrementing int) and include a timestamp column. Return the ID in the POST response so the frontend can show it to the user.
+- Every POST endpoint that stores data MUST have a corresponding GET endpoint that reads the CSV back (csv.DictReader) and returns all rows as a JSON list.
+- Use os.makedirs("data", exist_ok=True) at app startup to ensure the data directory exists.
+- In-memory-only storage is NOT acceptable. Data must survive a server restart.
+- Example pattern for a POST handler:
+  1. Generate id = str(uuid4()), timestamp = datetime.utcnow().isoformat()
+  2. Build row dict with id, timestamp, and all form fields
+  3. Open data/items.csv in "a" mode, create DictWriter with fieldnames
+  4. If file is empty, write header. Append the row.
+  5. Return {"success": true, "data": row} with the generated id.
 
 ARCHITECTURE RULES:
 - Use a MODULAR multi-file structure from Sprint 1. Do NOT put all routes in one file.
@@ -112,6 +161,8 @@ Return STRICT JSON only. No markdown. No commentary. No extra keys.
   "explanation": string
 }
 """.strip()
+        # Register with the base agent class. Uses GPT-4.1 because backend code
+        # generation requires strong reasoning about Flask patterns and API design.
         super().__init__(
             name="backend_agent",
             system_prompt=system_prompt,

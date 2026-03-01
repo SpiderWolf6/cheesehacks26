@@ -1,4 +1,24 @@
-"""Frontend development agent scaffold."""
+"""Frontend Agent — the frontend developer and UI designer AI agent.
+
+This agent acts as a senior frontend engineer and designer. When the orchestrator
+assigns it a frontend task (e.g., "build the donation form component"), it:
+1. Reads the task description and all existing frontend files from its context
+2. Generates complete HTML, CSS, and JavaScript/React files
+3. Returns the files as JSON for the orchestrator to write to disk
+
+The frontend uses React 18 via CDN (no npm/Node.js/build tools) — the app works
+by opening index.html directly in a browser. Each UI component lives in its own
+.js file under src/components/ and registers itself on the window object.
+
+Key design principles enforced by the system prompt:
+- Professional-quality design (think Stripe/Linear/Vercel level)
+- Modular components (each section in its own file, minimal changes to index.html)
+- Full feature completeness (no placeholders, every form actually submits data)
+- Display sections for stored data (fetch GET endpoints and show entries)
+- Iterative building (preserve all existing code, only add new functionality)
+
+The system prompt below is the frontend engineer's "instruction manual."
+"""
 
 from __future__ import annotations
 
@@ -7,9 +27,20 @@ from services.llm_service import LLMService
 
 
 class FrontendAgent(BaseAgent):
-    """Represents the frontend-focused developer agent."""
+    """The frontend developer agent — generates React/HTML/CSS/JS code.
+
+    Like the backend agent, this agent is stateless per call. All existing code
+    and task context is passed in each time. The orchestrator handles file I/O.
+
+    The agent returns JSON with:
+    - files_to_write: [{path, content}] — complete file contents (index.html, styles.css, component .js files)
+    - explanation: string — summary of what was built
+    """
 
     def __init__(self, llm_service: LLMService) -> None:
+        # The system prompt defines how this AI should behave as a frontend engineer.
+        # It covers React CDN setup, component architecture, CSS design philosophy,
+        # API integration patterns, and strict boundaries (no backend code, no npm).
         system_prompt = """
 You are an elite Senior Frontend Engineer and UI Designer with expertise in React and modern web design.
 You build frontends that look like they were designed by a world-class design team. Think Stripe, Linear, Vercel, or Notion level quality.
@@ -73,6 +104,14 @@ API INTEGRATION:
 - Show loading indicators during API calls.
 - Handle network failures gracefully with retry options.
 
+FEATURE COMPLETENESS (CRITICAL):
+- Every component you build MUST be fully functional. No placeholder content, no "coming soon" sections, no skeleton-only components.
+- Every form (donation, signup, contact, RSVP, etc.) MUST have complete submission logic: collect input via state, POST to the correct backend API endpoint, handle success with a confirmation message and the returned data (e.g., show donation ID, member ID), and handle errors with clear messaging.
+- Every navigation link or tab MUST lead to a fully built section with real content and working interactivity. Do NOT create nav links to unbuilt sections.
+- After a successful form submission, show a meaningful confirmation to the user (e.g., "Thank you! Your donation ID is #123") using the response data from the backend.
+- For every form that submits data, also build a display section on the same page (or a linked page) that fetches the corresponding GET endpoint and renders the stored entries in a styled, readable format (e.g., a table, card grid, or list). Examples: a "Recent Donors" wall below the donation form, a "Members" directory below the signup form, a "Messages" list below the contact form. Fetch the data on component mount and refresh after each new submission. This closes the loop so users can see their submission appeared.
+- If the task says to build a page or section, build it COMPLETELY: layout, content, styling, interactivity, API calls, loading states, error states, and success feedback. No half-done work.
+
 ITERATIVE BUILD RULES (CRITICAL):
 - Your input context includes project_state_summary with:
   - current_files: a dict mapping file paths to their CURRENT content on disk.
@@ -103,6 +142,8 @@ Return STRICT JSON only. No markdown. No commentary.
   "explanation": string
 }
 """.strip()
+        # Register with the base agent class. Uses GPT-4.1 for strong design sense
+        # and ability to produce complete, well-structured React components.
         super().__init__(
             name="frontend_agent",
             system_prompt=system_prompt,

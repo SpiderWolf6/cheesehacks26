@@ -1,4 +1,25 @@
-"""Quality assurance agent scaffold."""
+"""QA Agent — the quality assurance and test automation AI agent.
+
+This agent acts as a senior QA engineer. It does NOT write production code.
+Instead, it writes and runs automated tests to validate that the backend and
+frontend agents built things correctly. For each sprint, it produces:
+
+1. tests/test_api.py — Backend API tests using Python requests + pytest.
+   These hit the live Flask server (started by the orchestrator) and verify
+   endpoints return correct status codes, response shapes, and data.
+
+2. tests/test_frontend.py — Frontend behavior tests using Python requests + pytest.
+   These fetch HTML/JS files from the Flask static file server and verify that
+   component scripts exist, contain the right API fetch calls, and are properly
+   loaded in index.html.
+
+The QA agent also validates data round-trips (POST data, then GET it back to
+confirm it was persisted) and checks completeness (all nav links lead to real
+pages, all forms connect to working endpoints).
+
+The orchestrator starts the Flask backend BEFORE running QA tasks, so the tests
+can hit http://localhost:5000 directly.
+"""
 
 from __future__ import annotations
 
@@ -7,9 +28,22 @@ from services.llm_service import LLMService
 
 
 class QAAgent(BaseAgent):
-    """Represents the QA-focused developer agent."""
+    """The QA agent — generates and runs test suites to validate the built website.
+
+    This agent returns JSON with:
+    - files_to_write: [{path, content}] — test files (tests/test_api.py, tests/test_frontend.py)
+    - commands_to_run: [string] — pytest commands to execute the tests
+    - explanation: string — summary of what was tested and results
+
+    The orchestrator uses the command exit codes to determine if tests passed or failed.
+    Failed tests feed into the PM's review mode so future sprints can fix the issues.
+    """
 
     def __init__(self, llm_service: LLMService) -> None:
+        # The system prompt defines how this AI should write tests.
+        # It covers pytest conventions, what to test (and what NOT to test),
+        # assertion patterns, data round-trip validation, and strict boundaries
+        # (never modify production code, never start servers, no browser automation).
         system_prompt = """
 You are an elite Senior QA Engineer and Test Automation Specialist with deep expertise in API testing, integration validation, and quality assurance best practices.
 
@@ -56,6 +90,17 @@ ASSERTION BEST PRACTICES:
 - Use clear assertion messages: assert "key" in data, f"Missing 'key' in response: {data}"
 - For error cases, assert status code is 4xx and response contains an error message.
 
+DATA ROUND-TRIP VALIDATION (CRITICAL):
+- For every POST endpoint that stores data (donations, signups, contacts, members, etc.), write a round-trip test: POST new data, then GET the collection and verify the submitted data appears in the returned list.
+- Verify the POST response contains a generated ID field (e.g., "id" or "donation_id") so the frontend can display it.
+- Verify the GET endpoint returns previously POSTed data intact (correct field values and types).
+- This ensures the backend is actually persisting data, not just returning a success message and discarding input.
+
+COMPLETENESS VALIDATION:
+- For frontend tests, verify that ALL component script tags in index.html point to files that actually exist and are served by the backend (fetch each src/components/*.js URL and assert 200).
+- Verify every form component's JS file contains a fetch() call to the correct backend POST endpoint.
+- If the task mentions specific pages or sections that should exist, verify their component script is loaded in index.html.
+
 ITERATIVE BUILD RULES (CRITICAL):
 - Your input context includes project_state_summary with two fields:
   - current_files: a dict mapping file paths to their CURRENT content from previous sprints.
@@ -97,6 +142,8 @@ Return STRICT JSON only. No markdown. No commentary.
   "explanation": string
 }
 """.strip()
+        # Register with the base agent class. Uses GPT-4.1 for accurate test generation
+        # that correctly references endpoints, schemas, and file paths.
         super().__init__(
             name="qa_agent",
             system_prompt=system_prompt,
