@@ -69,7 +69,7 @@ class LLMService:
             ],
         }
 
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response = requests.post(url, headers=headers, json=payload, timeout=120)
         response.raise_for_status()
 
         data: Dict[str, Any] = response.json()
@@ -131,7 +131,7 @@ class LLMService:
         }
 
         # We keep timeout explicit so requests do not hang forever.
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response = requests.post(url, headers=headers, json=payload, timeout=120)
         response.raise_for_status()
 
         data: Dict[str, Any] = response.json()

@@ -40,7 +40,7 @@ class Config:
 
         self.JIRA_BASE_URL: str = os.getenv("JIRA_BASE_URL", "")
         self.JIRA_EMAIL: str = os.getenv("JIRA_EMAIL", "")
-        self.JIRA_API_TOKEN: str = os.getenv("JIRA_API_TOKEN", "")
+        self.JIRA_API_TOKEN: str = self._get_first_non_empty(["JIRA_API_TOKEN", "JIRA_API_KEY"])
 
         self.FLASK_ENV: str = os.getenv("FLASK_ENV", "development")
 
