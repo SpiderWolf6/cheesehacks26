@@ -5,142 +5,188 @@ import { useState, useRef, useEffect, useCallback } from "react";
 const API_BASE = "http://localhost:8000";
 
 type Message = { role: "user" | "assistant"; content: string };
-type Requirements = Record<string, any>;
 
-const ALL_KEYS = [
-  "organization.name","organization.mission","organization.target_audience",
-  "organization.tone_keywords","organization.primary_website_goal",
-  "pages",
-  "actions.donations.needed","actions.donations.recurring",
-  "actions.volunteer_signup.needed","actions.events.needed","actions.newsletter.needed",
-  "accessibility_and_i18n.multilanguage","accessibility_and_i18n.ada_compliance_required",
-  "design.brand_colors","design.has_logo","design.reference_sites",
-  "logistics.has_domain","logistics.domain_name","logistics.existing_tools",
-  "logistics.timeline","logistics.budget_range",
-  "content_inventory.has_existing_website",
-];
+/* ── Field display config ─────────────────────────────────────────────── */
 
-const KEY_LABELS: Record<string, string> = {
-  "organization.name": "Org Name", "organization.mission": "Mission",
-  "organization.target_audience": "Target Audience", "organization.tone_keywords": "Brand Tone",
-  "organization.primary_website_goal": "Primary Goal", "pages": "Pages / Programs",
-  "actions.donations.needed": "Donations", "actions.donations.recurring": "Recurring Giving",
-  "actions.volunteer_signup.needed": "Volunteer Signup", "actions.events.needed": "Events",
-  "actions.newsletter.needed": "Newsletter",
-  "accessibility_and_i18n.multilanguage": "Multi-language",
-  "accessibility_and_i18n.ada_compliance_required": "ADA Compliance",
-  "design.brand_colors": "Brand Colors", "design.has_logo": "Has Logo",
-  "design.reference_sites": "Reference Sites",
-  "logistics.has_domain": "Has Domain", "logistics.domain_name": "Domain Name",
-  "logistics.existing_tools": "Existing Tools", "logistics.timeline": "Timeline",
-  "logistics.budget_range": "Budget", "content_inventory.has_existing_website": "Existing Site",
+const FIELD_LABELS: Record<string, string> = {
+  org_name: "Organization Name",
+  mission: "Mission",
+  vision: "Vision",
+  about: "About",
+  target_audience: "Who They Serve",
+  values: "Core Values",
+  tone_impression: "Brand Tone",
+  year_founded: "Year Founded",
+  location: "Location",
+  website_url: "Website",
+  contact_info: "Contact Info",
+  financials_summary: "Financials",
 };
 
-const SECTION_LABELS: Record<string, string> = {
-  organization: "Organization", pages: "Pages", navigation: "Navigation",
-  actions: "Actions & Features", design: "Design", accessibility_and_i18n: "Accessibility",
-  logistics: "Logistics", content_inventory: "Content",
-};
+/* ── Helpers ──────────────────────────────────────────────────────────── */
 
 function formatValue(val: any): string {
-  if (val === null || val === undefined) return "—";
-  if (typeof val === "boolean") return val ? "Yes" : "No";
+  if (val === null || val === undefined || val === "") return "—";
   if (Array.isArray(val)) {
     if (val.length === 0) return "—";
-    if (typeof val[0] === "object") return val.map((v) => v.name || JSON.stringify(v)).join(", ");
+    if (typeof val[0] === "object") return JSON.stringify(val);
     return val.join(", ");
   }
-  if (typeof val === "object") return JSON.stringify(val);
   return String(val);
 }
 
-function ReqSection({ title, data }: { title: string; data: Record<string, any> }) {
-  return (
-    <div className="mb-6">
-      <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-500 mb-3">{title}</h3>
-      <div className="space-y-2">
-        {Object.entries(data).map(([k, v]) => {
-          if (v === null || v === "" || (Array.isArray(v) && v.length === 0)) return null;
-          if (typeof v === "object" && !Array.isArray(v)) {
-            return (
-              <div key={k} className="ml-2 mb-3">
-                <span className="text-slate-500 text-xs font-medium capitalize block mb-1">{k.replace(/_/g, " ")}</span>
-                <div className="space-y-1 ml-2">
-                  {Object.entries(v).map(([sk, sv]) => {
-                    if (sv === null || sv === "" || sv === false || (Array.isArray(sv) && sv.length === 0)) return null;
-                    return (
-                      <div key={sk} className="grid grid-cols-[120px_1fr] gap-2 text-xs">
-                        <span className="text-slate-500 capitalize">{sk.replace(/_/g, " ")}</span>
-                        <span className="text-slate-200 leading-snug">{formatValue(sv)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          }
-          return (
-            <div key={k} className="grid grid-cols-[140px_1fr] gap-3 text-sm">
-              <span className="text-slate-400 capitalize">{k.replace(/_/g, " ")}</span>
-              <span className="text-slate-100 leading-snug">{formatValue(v)}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+/* ── Editable Field Component ─────────────────────────────────────────── */
 
-function PageCard({ page }: { page: any }) {
+function EditableField({
+  label,
+  value,
+  fieldKey,
+  onSave,
+  onDelete,
+}: {
+  label: string;
+  value: any;
+  fieldKey: string;
+  onSave: (key: string, val: string) => void;
+  onDelete: (key: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(typeof value === "string" ? value : JSON.stringify(value));
+
+  const displayVal = formatValue(value);
+  if (displayVal === "—" && !editing) return null;
+
   return (
-    <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-3 mb-2">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-slate-100 text-sm font-medium">{page.name}</span>
-        {page.primary_cta && (
-          <span className="text-[10px] px-2 py-0.5 bg-amber-400/15 text-amber-400 rounded-full">
-            {page.primary_cta}
-          </span>
+    <div className="group flex items-start gap-3 py-2.5 border-b border-stone-800/50 last:border-0">
+      <div className="flex-1 min-w-0">
+        <div className="text-[11px] font-medium text-stone-500 uppercase tracking-wider mb-0.5">{label}</div>
+        {editing ? (
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={2}
+            className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2 text-sm text-stone-200 focus:border-teal-500 focus:ring-1 focus:ring-teal-500/30 outline-none resize-y"
+          />
+        ) : (
+          <div className="text-sm text-stone-200 leading-relaxed">{displayVal}</div>
         )}
       </div>
-      {page.purpose && (
-        <p className="text-slate-400 text-xs leading-relaxed mb-2">{page.purpose}</p>
-      )}
-      {page.sections && page.sections.length > 0 && (
-        <div className="space-y-1 mt-2">
-          <span className="text-[10px] text-slate-600 uppercase tracking-wider">Sections</span>
-          {page.sections.map((s: any, i: number) => (
-            <div key={i} className="flex items-start gap-2 text-xs">
-              <div className="w-1 h-1 rounded-full bg-slate-600 mt-1.5 flex-shrink-0" />
-              <div>
-                <span className="text-slate-300">{s.name || s}</span>
-                {s.description && (
-                  <span className="text-slate-600 ml-1">— {s.description}</span>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {page.notes && (
-        <p className="text-slate-600 text-[11px] mt-2 italic">{page.notes}</p>
-      )}
+      <div className="flex items-center gap-1 pt-3 opacity-0 group-hover:opacity-100 transition-opacity">
+        {editing ? (
+          <>
+            <button
+              onClick={() => { onSave(fieldKey, draft); setEditing(false); }}
+              className="p-1 text-teal-400 hover:text-teal-300"
+              title="Save"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              className="p-1 text-stone-500 hover:text-stone-300"
+              title="Cancel"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => { setDraft(typeof value === "string" ? value : JSON.stringify(value)); setEditing(true); }}
+              className="p-1 text-stone-600 hover:text-stone-300"
+              title="Edit"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </button>
+            <button
+              onClick={() => onDelete(fieldKey)}
+              className="p-1 text-stone-600 hover:text-red-400"
+              title="Remove"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
-export default function ConsultantChat() {
-  const [phase, setPhase] = useState<"landing" | "uploading" | "chat">("landing");
+/* ── Array Section (Programs, Leadership, etc.) ───────────────────────── */
+
+function ArraySection({
+  title,
+  items,
+  fieldKey,
+  onSave,
+  onDelete,
+}: {
+  title: string;
+  items: any[];
+  fieldKey: string;
+  onSave: (key: string, val: string) => void;
+  onDelete: (key: string) => void;
+}) {
+  if (!items || items.length === 0) return null;
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-[11px] font-bold text-teal-500 uppercase tracking-wider">{title}</h4>
+        <button
+          onClick={() => onDelete(fieldKey)}
+          className="text-stone-600 hover:text-red-400 p-1 opacity-0 group-hover:opacity-100"
+          title="Remove all"
+        >
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div className="space-y-1.5">
+        {items.map((item: any, i: number) => (
+          <div key={i} className="bg-stone-900/60 rounded-lg px-3 py-2 text-sm">
+            {typeof item === "string" ? (
+              <span className="text-stone-300">{item}</span>
+            ) : (
+              <div>
+                <span className="text-stone-200 font-medium">{item.name || item.label || item.page_name}</span>
+                {(item.description || item.value || item.role || item.reason) && (
+                  <span className="text-stone-500 ml-1.5">
+                    — {item.description || item.value || item.role || item.reason}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Main Component ───────────────────────────────────────────────────── */
+
+export default function NonprofitExtractor() {
+  const [phase, setPhase] = useState<"upload" | "processing" | "review" | "done">("upload");
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [profile, setProfile] = useState<Record<string, any>>({});
+  const [questions, setQuestions] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isExtracting, setIsExtracting] = useState(false);
-  const [requirements, setRequirements] = useState<Requirements | null>(null);
-  const [foundKeys, setFoundKeys] = useState<string[]>([]);
-  const [missingKeys, setMissingKeys] = useState<string[]>([]);
+  const [pmContext, setPmContext] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [showProgress, setShowProgress] = useState(true);
+  const [isConfirming, setIsConfirming] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -149,49 +195,53 @@ export default function ConsultantChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
-  const startSession = async (file?: File | null) => {
-    setPhase("uploading");
+  /* ── Upload & extract ─────────────────────────────────────────────── */
+
+  const startExtraction = async (file: File) => {
+    setPhase("processing");
     setIsLoading(true);
-    setRequirements(null);
-    setMessages([]);
 
     try {
-      let res: Response;
-      if (file) {
-        const form = new FormData();
-        form.append("annual_report", file);
-        res = await fetch(`${API_BASE}/manager/session/new`, { method: "POST", body: form });
-      } else {
-        res = await fetch(`${API_BASE}/manager/session/new`, { method: "POST" });
-      }
+      const form = new FormData();
+      form.append("annual_report", file);
+      const res = await fetch(`${API_BASE}/session/new`, { method: "POST", body: form });
       const data = await res.json();
-      if (data.session_id && data.greeting) {
-        setSessionId(data.session_id);
-        setMessages([{ role: "assistant", content: data.greeting }]);
-        setFoundKeys(data.found_keys ?? []);
-        setMissingKeys(data.missing_keys ?? ALL_KEYS);
-        setPhase("chat");
+
+      if (data.error) {
+        alert(data.error);
+        setPhase("upload");
+        return;
       }
+
+      setSessionId(data.session_id);
+      setProfile(data.profile);
+      setQuestions(data.questions || []);
+      setMessages([{ role: "assistant", content: data.greeting }]);
+      setPhase("review");
     } catch (err) {
       console.error(err);
-      setPhase("landing");
+      alert("Failed to process the report. Please try again.");
+      setPhase("upload");
     } finally {
       setIsLoading(false);
     }
   };
 
+  /* ── Chat ──────────────────────────────────────────────────────────── */
+
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || !sessionId || isLoading) return;
-    const userMessage = input.trim();
+    const userMsg = input.trim();
     setInput("");
-    setMessages((p) => [...p, { role: "user", content: userMessage }]);
+    setMessages((p) => [...p, { role: "user", content: userMsg }]);
     setIsLoading(true);
+
     try {
-      const res = await fetch(`${API_BASE}/manager/chat`, {
+      const res = await fetch(`${API_BASE}/session/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, message: userMessage }),
+        body: JSON.stringify({ session_id: sessionId, message: userMsg }),
       });
       const data = await res.json();
       if (data.reply) setMessages((p) => [...p, { role: "assistant", content: data.reply }]);
@@ -202,21 +252,70 @@ export default function ConsultantChat() {
     }
   };
 
-  const generateBrief = async () => {
-    if (!sessionId) return;
-    setIsExtracting(true);
+  /* ── Profile editing ──────────────────────────────────────────────── */
+
+  const saveField = async (key: string, value: string) => {
+    // Try to parse JSON for arrays/objects, otherwise keep as string
+    let parsed: any = value;
     try {
-      const res = await fetch(`${API_BASE}/manager/session/${sessionId}/handoff`, {
-        method: "POST",
-      });
+      const attempt = JSON.parse(value);
+      if (typeof attempt === "object") parsed = attempt;
+    } catch { /* keep as string */ }
+
+    const updated = { ...profile, [key]: parsed };
+    setProfile(updated);
+
+    if (sessionId) {
+      try {
+        await fetch(`${API_BASE}/session/${sessionId}/profile`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [key]: parsed }),
+        });
+      } catch (err) {
+        console.error("Failed to sync edit:", err);
+      }
+    }
+  };
+
+  const deleteField = async (key: string) => {
+    const updated = { ...profile };
+    delete updated[key];
+    setProfile(updated);
+
+    if (sessionId) {
+      try {
+        await fetch(`${API_BASE}/session/${sessionId}/profile`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [key]: null }),
+        });
+      } catch (err) {
+        console.error("Failed to sync delete:", err);
+      }
+    }
+  };
+
+  /* ── Confirm & handoff ────────────────────────────────────────────── */
+
+  const confirmAndHandoff = async () => {
+    if (!sessionId) return;
+    setIsConfirming(true);
+    try {
+      const res = await fetch(`${API_BASE}/session/${sessionId}/confirm`, { method: "POST" });
       const data = await res.json();
-      if (data.brief) setRequirements(data.brief);
+      if (data.pm_context) {
+        setPmContext(data.pm_context);
+        setPhase("done");
+      }
     } catch (err) {
       console.error(err);
     } finally {
-      setIsExtracting(false);
+      setIsConfirming(false);
     }
   };
+
+  /* ── Drop handler ─────────────────────────────────────────────────── */
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -225,219 +324,225 @@ export default function ConsultantChat() {
     if (file?.type === "application/pdf") setUploadedFile(file);
   }, []);
 
-  const filledCount = foundKeys.length;
-  const totalCount = ALL_KEYS.length;
-  const progressPct = Math.round((filledCount / totalCount) * 100);
+  // ═══════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════════════
 
-  // ── LANDING ──────────────────────────────────────────────────────────────
-  if (phase === "landing") {
+  const fonts = `@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600;700&display=swap');`;
+
+  /* ── UPLOAD SCREEN ────────────────────────────────────────────────── */
+
+  if (phase === "upload") {
     return (
-      <div className="min-h-screen bg-[#0d0f14] flex items-center justify-center p-8"
+      <div className="min-h-screen bg-stone-950 flex items-center justify-center p-8"
         style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
-        <style>{`
-          @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap');
-          * { box-sizing: border-box; }
-        `}</style>
+        <style>{fonts}</style>
 
-        <div className="w-full max-w-lg">
-          {/* Wordmark */}
-          <div className="mb-12">
-            <div className="text-amber-400 text-xs font-semibold tracking-[0.3em] uppercase mb-2">AgileGPT</div>
-            <h1 style={{ fontFamily: "'DM Serif Display', serif" }}
-              className="text-4xl text-white leading-tight">
-              Nonprofit Website<br /><em className="text-amber-400">Consultant</em>
+        <div className="w-full max-w-md">
+          <div className="mb-10">
+            <div className="text-teal-500 text-xs font-semibold tracking-[0.3em] uppercase mb-3">
+              AgileGPT
+            </div>
+            <h1 style={{ fontFamily: "'Instrument Serif', serif" }}
+              className="text-4xl text-stone-100 leading-tight mb-3">
+              Nonprofit <em className="text-teal-400">Data Engineer</em>
             </h1>
-            <p className="text-slate-400 mt-3 text-sm leading-relaxed max-w-sm">
-              Upload your annual report and we'll pre-fill everything we can — then guide you through the rest in a short conversation.
+            <p className="text-stone-500 text-sm leading-relaxed max-w-sm">
+              Upload an annual report. We'll extract everything we can about the
+              organization and prepare it for the PM.
             </p>
           </div>
 
-          {/* Drop zone */}
           <div
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
-            className={`relative border-2 border-dashed rounded-xl p-8 cursor-pointer transition-all duration-200 mb-4 ${
-              dragOver
-                ? "border-amber-400 bg-amber-400/5"
-                : uploadedFile
-                ? "border-emerald-500 bg-emerald-500/5"
-                : "border-slate-700 bg-slate-800/40 hover:border-slate-500 hover:bg-slate-800/60"
+            className={`border-2 border-dashed rounded-xl p-10 cursor-pointer transition-all mb-4 ${
+              dragOver ? "border-teal-400 bg-teal-400/5"
+                : uploadedFile ? "border-emerald-500 bg-emerald-500/5"
+                : "border-stone-800 bg-stone-900/30 hover:border-stone-600"
             }`}
           >
             <input ref={fileInputRef} type="file" accept=".pdf" className="hidden"
               onChange={(e) => setUploadedFile(e.target.files?.[0] ?? null)} />
 
             {uploadedFile ? (
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
                   <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
                 <div>
                   <p className="text-emerald-400 font-medium text-sm">{uploadedFile.name}</p>
-                  <p className="text-slate-500 text-xs mt-0.5">{(uploadedFile.size / 1024).toFixed(0)} KB · Click to change</p>
+                  <p className="text-stone-600 text-xs mt-0.5">{(uploadedFile.size / 1024).toFixed(0)} KB</p>
                 </div>
               </div>
             ) : (
               <div className="text-center">
-                <div className="w-10 h-10 rounded-lg bg-slate-700 flex items-center justify-center mx-auto mb-3">
-                  <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                <div className="w-12 h-12 rounded-xl bg-stone-800 flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-6 h-6 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                   </svg>
                 </div>
-                <p className="text-slate-300 text-sm font-medium">Drop your annual report here</p>
-                <p className="text-slate-500 text-xs mt-1">PDF · Optional but recommended</p>
+                <p className="text-stone-300 text-sm font-medium">Drop annual report here</p>
+                <p className="text-stone-600 text-xs mt-1">PDF format</p>
               </div>
             )}
           </div>
 
-          {/* CTA buttons */}
-          <div className="space-y-3">
-            <button
-              onClick={() => startSession(uploadedFile)}
-              className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all duration-200 bg-amber-400 text-slate-900 hover:bg-amber-300 active:scale-[0.98]"
-            >
-              {uploadedFile ? "Analyse Report & Start →" : "Start Without Report →"}
-            </button>
-            {uploadedFile && (
-              <button onClick={() => setUploadedFile(null)}
-                className="w-full py-2.5 rounded-xl text-sm text-slate-500 hover:text-slate-300 transition-colors">
-                Clear file
-              </button>
-            )}
-          </div>
+          <button
+            onClick={() => uploadedFile && startExtraction(uploadedFile)}
+            disabled={!uploadedFile}
+            className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all bg-teal-500 text-stone-950 hover:bg-teal-400 disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.98]"
+          >
+            Extract & Analyse →
+          </button>
         </div>
       </div>
     );
   }
 
-  // ── UPLOADING ────────────────────────────────────────────────────────────
-  if (phase === "uploading") {
+  /* ── PROCESSING SCREEN ────────────────────────────────────────────── */
+
+  if (phase === "processing") {
     return (
-      <div className="min-h-screen bg-[#0d0f14] flex items-center justify-center"
+      <div className="min-h-screen bg-stone-950 flex items-center justify-center"
         style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
-        <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap');`}</style>
+        <style>{fonts}</style>
         <div className="text-center">
-          <div className="w-12 h-12 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
-          <p className="text-slate-300 font-medium">
-            {uploadedFile ? "Reading your annual report…" : "Starting session…"}
-          </p>
-          <p className="text-slate-600 text-sm mt-1">Scanning your report for organization details</p>
+          <div className="w-12 h-12 border-2 border-teal-400 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
+          <p className="text-stone-300 font-medium">Reading annual report…</p>
+          <p className="text-stone-600 text-sm mt-1">Extracting organization details</p>
         </div>
       </div>
     );
   }
 
-  // ── CHAT ─────────────────────────────────────────────────────────────────
+  /* ── DONE SCREEN (PM Context) ─────────────────────────────────────── */
+
+  if (phase === "done" && pmContext) {
+    return (
+      <div className="min-h-screen bg-stone-950 flex items-center justify-center p-8"
+        style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
+        <style>{fonts}</style>
+        <div className="w-full max-w-2xl">
+          <div className="mb-8 text-center">
+            <div className="w-14 h-14 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-7 h-7 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h2 style={{ fontFamily: "'Instrument Serif', serif" }}
+              className="text-2xl text-stone-100 mb-2">
+              Ready for the PM
+            </h2>
+            <p className="text-stone-500 text-sm">
+              This context block will be sent to the Product Manager agent.
+            </p>
+          </div>
+
+          <div className="bg-stone-900 border border-stone-800 rounded-xl p-6 mb-6">
+            <div className="text-[10px] font-bold text-teal-500 uppercase tracking-wider mb-3">PM Context</div>
+            <div className="text-sm text-stone-300 leading-relaxed whitespace-pre-wrap">
+              {pmContext}
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(pmContext);
+              }}
+              className="flex-1 py-3 bg-stone-800 hover:bg-stone-700 text-stone-300 text-sm font-medium rounded-xl transition-colors"
+            >
+              Copy to Clipboard
+            </button>
+            <button
+              onClick={() => {
+                const blob = new Blob([pmContext], { type: "text/plain" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a"); a.href = url;
+                a.download = `${profile.org_name || "nonprofit"}-pm-context.txt`;
+                a.click();
+              }}
+              className="flex-1 py-3 bg-teal-500 hover:bg-teal-400 text-stone-950 text-sm font-semibold rounded-xl transition-colors"
+            >
+              Download .txt
+            </button>
+          </div>
+
+          <button
+            onClick={() => { setPhase("upload"); setProfile({}); setPmContext(null); setMessages([]); setSessionId(null); }}
+            className="w-full mt-3 py-2.5 text-stone-600 hover:text-stone-400 text-xs transition-colors"
+          >
+            Start over with a new report
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── REVIEW SCREEN (Chat + Profile Panel) ─────────────────────────── */
+
+  const scalarFields = Object.entries(profile).filter(
+    ([_, v]) => typeof v === "string" || typeof v === "number" || typeof v === "boolean" || v === null
+  );
+  const arrayFields = Object.entries(profile).filter(
+    ([_, v]) => Array.isArray(v) && v.length > 0
+  );
 
   return (
-    <div className="flex h-screen bg-[#0d0f14] overflow-hidden"
+    <div className="flex h-screen bg-stone-950 overflow-hidden"
       style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap');
+        ${fonts}
         * { box-sizing: border-box; }
-        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #44403c; border-radius: 2px; }
       `}</style>
 
-      {/* ── LEFT SIDEBAR: Progress ─────────────────────────────────────── */}
-      {(foundKeys.length > 0 || missingKeys.length > 0) && showProgress && (
-        <aside className="w-56 flex-shrink-0 bg-[#111318] border-r border-slate-800 flex flex-col overflow-hidden">
-          <div className="p-4 border-b border-slate-800">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Coverage</span>
-              <span className="text-amber-400 text-xs font-semibold">{progressPct}%</span>
-            </div>
-            <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-              <div className="h-full bg-amber-400 rounded-full transition-all duration-500"
-                style={{ width: `${progressPct}%` }} />
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-3 space-y-1">
-            {ALL_KEYS.map((key) => {
-              const found = foundKeys.includes(key);
-              const missing = missingKeys.includes(key);
-              return (
-                <div key={key} className="flex items-center gap-2 py-0.5">
-                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                    found ? "bg-emerald-400" : missing ? "bg-amber-500" : "bg-slate-700"
-                  }`} />
-                  <span className={`text-[11px] leading-tight ${
-                    found ? "text-emerald-400" : missing ? "text-amber-400" : "text-slate-600"
-                  }`}>{KEY_LABELS[key] ?? key}</span>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="p-3 border-t border-slate-800 space-y-1 text-[10px] text-slate-600">
-            <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> From report</div>
-            <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Needs input</div>
-          </div>
-        </aside>
-      )}
-
-      {/* ── MAIN CHAT ──────────────────────────────────────────────────── */}
-      <div className={`flex flex-col h-full flex-1 min-w-0 ${requirements ? "border-r border-slate-800" : ""}`}>
+      {/* ── LEFT: Chat ──────────────────────────────────────────────── */}
+      <div className="flex flex-col h-full flex-1 min-w-0 border-r border-stone-800">
 
         {/* Header */}
-        <header className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800 bg-[#111318] flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setPhase("landing")}
-              className="text-slate-600 hover:text-slate-300 transition-colors">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <div>
-              <div className="text-white text-sm font-semibold leading-none">
-                {uploadedFile ? uploadedFile.name.replace(".pdf", "") : "New Session"}
-              </div>
-              <div className="text-slate-600 text-[11px] mt-0.5">
-                {sessionId?.substring(0, 8)}… · {messages.length} messages
-              </div>
+        <header className="flex items-center justify-between px-5 py-3.5 border-b border-stone-800 bg-stone-950 flex-shrink-0">
+          <div>
+            <div className="text-stone-100 text-sm font-semibold">
+              {profile.org_name || "Review Findings"}
+            </div>
+            <div className="text-stone-600 text-[11px] mt-0.5">
+              Review, edit, or add to the extracted data
             </div>
           </div>
-
-          <div className="flex items-center gap-2">
-            {(foundKeys.length > 0 || missingKeys.length > 0) && (
-              <button onClick={() => setShowProgress((p) => !p)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  showProgress ? "bg-slate-800 text-slate-300" : "bg-slate-800/50 text-slate-500 hover:text-slate-300"
-                }`}>
-                {showProgress ? "Hide" : "Show"} Progress
-              </button>
+          <button
+            onClick={confirmAndHandoff}
+            disabled={isConfirming || isLoading}
+            className="flex items-center gap-1.5 px-4 py-2 bg-teal-500 hover:bg-teal-400 disabled:opacity-40 text-stone-950 text-xs font-semibold rounded-lg transition-all active:scale-95"
+          >
+            {isConfirming ? (
+              <><div className="w-3 h-3 border border-stone-900 border-t-transparent rounded-full animate-spin" /> Confirming…</>
+            ) : (
+              "Confirm & Send to PM →"
             )}
-            <button onClick={generateBrief} disabled={isExtracting || isLoading}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-900 text-xs font-semibold rounded-lg transition-all active:scale-95">
-              {isExtracting ? (
-                <><div className="w-3 h-3 border border-slate-900 border-t-transparent rounded-full animate-spin" /> Extracting…</>
-              ) : (
-                <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg> Generate Brief</>
-              )}
-            </button>
-          </div>
+          </button>
         </header>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-5 py-6 space-y-5">
+        <div className="flex-1 overflow-y-auto px-5 py-6 space-y-4">
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
               {msg.role === "assistant" && (
-                <div className="w-7 h-7 rounded-full bg-amber-400/20 border border-amber-400/30 flex items-center justify-center flex-shrink-0 mt-0.5 mr-2.5">
-                  <span className="text-amber-400 text-xs font-bold">A</span>
+                <div className="w-7 h-7 rounded-full bg-teal-500/20 border border-teal-500/30 flex items-center justify-center flex-shrink-0 mt-0.5 mr-2.5">
+                  <span className="text-teal-400 text-xs font-bold">A</span>
                 </div>
               )}
               <div className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
                 msg.role === "user"
-                  ? "bg-slate-700 text-slate-100 rounded-br-sm"
-                  : "bg-[#1a1d24] border border-slate-800 text-slate-200 rounded-bl-sm"
+                  ? "bg-stone-800 text-stone-100 rounded-br-sm"
+                  : "bg-stone-900 border border-stone-800 text-stone-300 rounded-bl-sm"
               }`}>
                 {msg.content}
               </div>
@@ -446,12 +551,12 @@ export default function ConsultantChat() {
 
           {isLoading && (
             <div className="flex justify-start">
-              <div className="w-7 h-7 rounded-full bg-amber-400/20 border border-amber-400/30 flex items-center justify-center flex-shrink-0 mt-0.5 mr-2.5">
-                <span className="text-amber-400 text-xs font-bold">A</span>
+              <div className="w-7 h-7 rounded-full bg-teal-500/20 border border-teal-500/30 flex items-center justify-center flex-shrink-0 mt-0.5 mr-2.5">
+                <span className="text-teal-400 text-xs font-bold">A</span>
               </div>
-              <div className="bg-[#1a1d24] border border-slate-800 rounded-2xl rounded-bl-sm px-4 py-3 flex gap-1 items-center">
+              <div className="bg-stone-900 border border-stone-800 rounded-2xl rounded-bl-sm px-4 py-3 flex gap-1 items-center">
                 {[0, 1, 2].map((i) => (
-                  <div key={i} className="w-1.5 h-1.5 bg-slate-500 rounded-full animate-bounce"
+                  <div key={i} className="w-1.5 h-1.5 bg-stone-600 rounded-full animate-bounce"
                     style={{ animationDelay: `${i * 0.15}s` }} />
                 ))}
               </div>
@@ -461,121 +566,92 @@ export default function ConsultantChat() {
         </div>
 
         {/* Input */}
-        <form onSubmit={sendMessage}
-          className="px-5 py-4 border-t border-slate-800 bg-[#111318] flex-shrink-0">
+        <div className="px-5 py-4 border-t border-stone-800 bg-stone-950 flex-shrink-0">
           <div className="flex gap-2">
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(e as any); } }}
               disabled={isLoading}
-              placeholder="Reply to the consultant…"
-              className="flex-1 bg-[#1a1d24] border border-slate-700 focus:border-amber-400/50 focus:ring-1 focus:ring-amber-400/20 text-slate-200 placeholder-slate-600 rounded-xl px-4 py-3 text-sm outline-none transition-all"
+              placeholder="Edit something, add info, or ask a question…"
+              className="flex-1 bg-stone-900 border border-stone-700 focus:border-teal-500 focus:ring-1 focus:ring-teal-500/20 text-stone-200 placeholder-stone-600 rounded-xl px-4 py-3 text-sm outline-none transition-all"
             />
-            <button type="submit" disabled={isLoading || !input.trim()}
-              className="px-4 py-3 bg-amber-400 hover:bg-amber-300 disabled:opacity-30 text-slate-900 rounded-xl transition-all active:scale-95">
+            <button
+              onClick={(e) => sendMessage(e as any)}
+              disabled={isLoading || !input.trim()}
+              className="px-4 py-3 bg-teal-500 hover:bg-teal-400 disabled:opacity-30 text-stone-950 rounded-xl transition-all active:scale-95"
+            >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
               </svg>
             </button>
           </div>
-        </form>
+        </div>
       </div>
 
-      {/* ── REQUIREMENTS BRIEF ────────────────────────────────────────── */}
-      {requirements && (
-        <div className="w-96 flex-shrink-0 flex flex-col h-full bg-[#111318] overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-500">Output</div>
-              <div className="text-white text-sm font-semibold mt-0.5">Requirements Brief</div>
-            </div>
-            <button onClick={() => setRequirements(null)}
-              className="text-slate-600 hover:text-slate-300 transition-colors p-1">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-5">
-            {/* Organization */}
-            {requirements.organization && (
-              <ReqSection title="Organization" data={requirements.organization} />
-            )}
-
-            {/* Pages — rich cards */}
-            {Array.isArray(requirements.pages) && requirements.pages.length > 0 && (
-              <div className="mb-6">
-                <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-500 mb-3">Pages</h3>
-                {requirements.pages.map((p: any, i: number) =>
-                  typeof p === "string" ? (
-                    <span key={i} className="inline-block px-2.5 py-1 bg-slate-800 text-slate-300 rounded-lg text-xs mr-1.5 mb-1.5">{p}</span>
-                  ) : (
-                    <PageCard key={i} page={p} />
-                  )
-                )}
-              </div>
-            )}
-
-            {/* Navigation */}
-            {requirements.navigation && (
-              <ReqSection title="Navigation" data={requirements.navigation} />
-            )}
-
-            {/* Actions */}
-            {requirements.actions && (
-              <ReqSection title={SECTION_LABELS["actions"] ?? "Actions"} data={requirements.actions} />
-            )}
-
-            {/* Design */}
-            {requirements.design && (
-              <ReqSection title="Design" data={requirements.design} />
-            )}
-
-            {/* Accessibility */}
-            {requirements.accessibility_and_i18n && (
-              <ReqSection title="Accessibility & i18n" data={requirements.accessibility_and_i18n} />
-            )}
-
-            {/* Logistics */}
-            {requirements.logistics && (
-              <ReqSection title="Logistics" data={requirements.logistics} />
-            )}
-
-            {/* Content Inventory */}
-            {requirements.content_inventory && (
-              <ReqSection title="Content Inventory" data={requirements.content_inventory} />
-            )}
-
-            {/* Raw JSON toggle */}
-            <details className="mt-4">
-              <summary className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600 cursor-pointer hover:text-slate-400 transition-colors">
-                Raw JSON
-              </summary>
-              <pre className="mt-3 text-[10px] text-slate-500 bg-slate-900 rounded-lg p-3 overflow-x-auto leading-relaxed">
-                {JSON.stringify(requirements, null, 2)}
-              </pre>
-            </details>
-          </div>
-
-          <div className="p-4 border-t border-slate-800">
-            <button
-              onClick={() => {
-                const blob = new Blob([JSON.stringify(requirements, null, 2)], { type: "application/json" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url; a.download = "website-brief.json"; a.click();
-              }}
-              className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Download website-brief.json
-            </button>
-          </div>
+      {/* ── RIGHT: Extracted Profile Panel ─────────────────────────── */}
+      <div className="w-[380px] flex-shrink-0 flex flex-col h-full bg-stone-950 overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-stone-800 flex-shrink-0">
+          <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-teal-500">Extracted Profile</div>
+          <div className="text-stone-500 text-[11px] mt-0.5">Hover any field to edit or remove</div>
         </div>
-      )}
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+
+          {/* Scalar fields */}
+          <div className="mb-6">
+            {scalarFields.map(([key, val]) => (
+              <EditableField
+                key={key}
+                label={FIELD_LABELS[key] || key.replace(/_/g, " ")}
+                value={val}
+                fieldKey={key}
+                onSave={saveField}
+                onDelete={deleteField}
+              />
+            ))}
+          </div>
+
+          {/* Array fields */}
+          {arrayFields.map(([key, val]) => (
+            <ArraySection
+              key={key}
+              title={FIELD_LABELS[key] || key.replace(/_/g, " ")}
+              items={val as any[]}
+              fieldKey={key}
+              onSave={saveField}
+              onDelete={deleteField}
+            />
+          ))}
+
+          {/* Clarifying questions badge */}
+          {questions.length > 0 && (
+            <div className="mt-6 bg-teal-500/10 border border-teal-500/20 rounded-xl p-4">
+              <div className="text-[10px] font-bold text-teal-400 uppercase tracking-wider mb-2">
+                Questions for you
+              </div>
+              <ul className="space-y-1.5">
+                {questions.map((q, i) => (
+                  <li key={i} className="text-xs text-stone-400 leading-relaxed flex gap-2">
+                    <span className="text-teal-500 mt-0.5">•</span> {q}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        {/* Bottom action */}
+        <div className="p-4 border-t border-stone-800 flex-shrink-0">
+          <button
+            onClick={confirmAndHandoff}
+            disabled={isConfirming}
+            className="w-full py-3 bg-teal-500 hover:bg-teal-400 disabled:opacity-40 text-stone-950 text-sm font-semibold rounded-xl transition-all active:scale-[0.98]"
+          >
+            {isConfirming ? "Generating PM Context…" : "✓ Confirm & Send to PM"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

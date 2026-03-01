@@ -1,4 +1,4 @@
-"""Flask entrypoint for AgileGPT backend."""
+"""Flask entrypoint — Nonprofit Profile Extractor & PM Handoff."""
 
 from __future__ import annotations
 
@@ -27,164 +27,183 @@ def health() -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Manager (discovery conversation)
+# 1. Upload & Extract — Start a new session
 # ---------------------------------------------------------------------------
 
-@app.post("/manager/session/new")
+@app.post("/session/new")
 def new_session() -> Any:
     """
-    Start a new discovery session.
+    Upload a PDF annual report → extract nonprofit profile → start review session.
 
-    Optionally accepts a multipart/form-data POST with an annual report PDF:
-      - Field name: "annual_report"  (file upload, PDF)
-
-    If a PDF is provided, it is processed through the RAG pipeline first.
-    The manager will then know what was already extracted and only ask
-    about the remaining gaps.
+    Accepts multipart/form-data with field "annual_report" (PDF file).
 
     Returns:
     {
-      "session_id":   "string",
-      "greeting":     "string",
-      "prefilled":    { ... } | null,
-      "found_keys":   [ ... ] | null,
-      "missing_keys": [ ... ] | null
+      "session_id": "string",
+      "greeting":   "string",
+      "profile":    { ... extracted data ... },
+      "questions":  [ ... clarifying questions ... ]
     }
     """
     pdf_file = request.files.get("annual_report")
+    if not pdf_file:
+        return jsonify({"error": "annual_report PDF file is required."}), 400
 
-    prefill_context: str | None = None
-    rag_result: dict | None = None
+    # Save to temp file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        pdf_file.save(tmp.name)
+        tmp_path = tmp.name
 
-    if pdf_file:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            pdf_file.save(tmp.name)
-            tmp_path = tmp.name
+    try:
+        # Step 1: Extract profile from PDF
+        rag_result = rag_service.extract_from_annual_report(tmp_path)
 
-        try:
-            rag_result = rag_service.extract_from_annual_report(tmp_path)
-            prefill_context = rag_service.build_prefill_context_block(rag_result)
-        except Exception as exc:
-            return jsonify({"error": f"Failed to process annual report: {exc}"}), 500
-        finally:
-            os.unlink(tmp_path)
+        # Step 2: Create review session with extracted data
+        session_result = manager.create_session(
+            profile=rag_result["profile"],
+            questions=rag_result["questions"],
+        )
 
-    session_result = manager.create_session(
-        prefill_context=prefill_context,
-        prefilled_data=rag_result["prefilled"] if rag_result else None,
-    )
+        return jsonify(session_result)
 
-    return jsonify({
-        **session_result,
-        "prefilled":    rag_result["prefilled"]   if rag_result else None,
-        "found_keys":   rag_result["found_keys"]  if rag_result else None,
-        "missing_keys": rag_result["missing_keys"] if rag_result else None,
-    })
+    except Exception as exc:
+        return jsonify({"error": f"Failed to process annual report: {exc}"}), 500
+    finally:
+        os.unlink(tmp_path)
 
 
-@app.post("/manager/chat")
-def manager_chat() -> Any:
+# ---------------------------------------------------------------------------
+# 2. Chat — Review conversation (edit, add, delete, clarify)
+# ---------------------------------------------------------------------------
+
+@app.post("/session/chat")
+def session_chat() -> Any:
     """
-    Send a user message and get the manager's reply.
+    Send a message in the review conversation.
 
-    Body:
-    {
-      "session_id": "string",
-      "message":    "string"
-    }
+    Body: { "session_id": "string", "message": "string" }
 
-    Returns:
-    {
-      "session_id":    "string",
-      "reply":         "string",
-      "message_count": int
-    }
+    Returns: { "session_id": "string", "reply": "string", "message_count": int }
     """
     payload: Dict[str, Any] = request.get_json(silent=True) or {}
     session_id = payload.get("session_id", "")
     message = payload.get("message", "")
 
-    if not isinstance(session_id, str) or not session_id:
-        return jsonify({"error": "session_id is required"}), 400
-    if not isinstance(message, str) or not message.strip():
-        return jsonify({"error": "message must be a non-empty string"}), 400
+    if not session_id or not isinstance(session_id, str):
+        return jsonify({"error": "session_id is required."}), 400
+    if not message or not message.strip():
+        return jsonify({"error": "message must be non-empty."}), 400
     if not manager.session_exists(session_id):
-        return jsonify({"error": "Session not found. Call /manager/session/new first."}), 404
+        return jsonify({"error": "Session not found."}), 404
 
     result = manager.send_message(session_id, message)
     return jsonify(result)
 
 
-@app.get("/manager/session/<session_id>/transcript")
-def get_transcript(session_id: str) -> Any:
-    """Returns the full conversation transcript for a session."""
+# ---------------------------------------------------------------------------
+# 3. Get / Update Profile
+# ---------------------------------------------------------------------------
+
+@app.get("/session/<session_id>/profile")
+def get_profile(session_id: str) -> Any:
+    """Return the current extracted profile for a session."""
     if not manager.session_exists(session_id):
         return jsonify({"error": "Session not found."}), 404
 
     return jsonify({
         "session_id": session_id,
-        "metadata":   manager.get_metadata(session_id),
-        "transcript": manager.get_transcript(session_id),
+        "profile": manager.get_profile(session_id),
     })
 
 
-@app.post("/manager/session/<session_id>/handoff")
-def handoff_to_pm(session_id: str) -> Any:
+@app.patch("/session/<session_id>/profile")
+def update_profile(session_id: str) -> Any:
     """
-    Finalise the discovery session: extract the structured product brief
-    and hand it off to the PM agent.
+    Update specific fields in the profile.
 
-    This is called when the user types "generate brief" and the manager
-    confirms it has everything it needs.
+    Body: { "field_name": "new_value", ... }
+    Send null as value to delete a field.
+
+    Returns the updated profile.
+    """
+    if not manager.session_exists(session_id):
+        return jsonify({"error": "Session not found."}), 404
+
+    updates = request.get_json(silent=True) or {}
+    if not updates:
+        return jsonify({"error": "No updates provided."}), 400
+
+    updated_profile = manager.update_profile(session_id, updates)
+    return jsonify({
+        "session_id": session_id,
+        "profile": updated_profile,
+    })
+
+
+# ---------------------------------------------------------------------------
+# 4. Confirm & Handoff to PM
+# ---------------------------------------------------------------------------
+
+@app.post("/session/<session_id>/confirm")
+def confirm_and_handoff(session_id: str) -> Any:
+    """
+    User confirms the profile is correct.
+    Generates the PM-ready context paragraph.
 
     Returns:
     {
-      "session_id":    "string",
-      "generated_at":  "ISO timestamp",
-      "brief":         { ...structured PM-ready brief... },
-      "pm_session_id": "string"   // ID of the PM agent session (once wired up)
+      "session_id":     "string",
+      "confirmed_at":   "ISO timestamp",
+      "profile":        { ... final profile ... },
+      "pm_context":     "string — the paragraph sent to the PM agent"
     }
     """
     if not manager.session_exists(session_id):
         return jsonify({"error": "Session not found."}), 404
 
-    try:
-        brief = manager.extract_requirements(session_id)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except json.JSONDecodeError:
-        return jsonify({"error": "Failed to parse structured brief from AI response."}), 500
+    # Mark as confirmed
+    manager.confirm_profile(session_id)
+    profile = manager.get_profile(session_id)
 
-    # TODO: wire up PM agent here
-    # pm_result = pm_agent.kickoff(brief)
-    # pm_session_id = pm_result["session_id"]
+    # Generate PM handoff paragraph
+    pm_context = rag_service.build_pm_context(profile)
 
     return jsonify({
-        "session_id":   session_id,
-        "generated_at": datetime.utcnow().isoformat(),
-        "brief":        brief,
-        "pm_session_id": None,  # placeholder until PM agent is built
+        "session_id": session_id,
+        "confirmed_at": datetime.utcnow().isoformat(),
+        "profile": profile,
+        "pm_context": pm_context,
     })
 
 
-@app.delete("/manager/session/<session_id>")
-def delete_session(session_id: str) -> Any:
-    """Clear a session from memory."""
+# ---------------------------------------------------------------------------
+# 5. Session management
+# ---------------------------------------------------------------------------
+
+@app.get("/session/<session_id>/transcript")
+def get_transcript(session_id: str) -> Any:
+    """Returns the conversation transcript."""
     if not manager.session_exists(session_id):
         return jsonify({"error": "Session not found."}), 404
 
+    return jsonify({
+        "session_id": session_id,
+        "transcript": manager.get_transcript(session_id),
+    })
+
+
+@app.delete("/session/<session_id>")
+def delete_session(session_id: str) -> Any:
+    if not manager.session_exists(session_id):
+        return jsonify({"error": "Session not found."}), 404
     manager.delete_session(session_id)
     return jsonify({"message": f"Session {session_id} deleted."})
 
 
-@app.get("/manager/sessions")
+@app.get("/sessions")
 def list_sessions() -> Any:
-    """List all active sessions."""
     sessions = manager.list_all_sessions()
-    return jsonify({
-        "active_sessions": len(sessions),
-        "sessions": sessions,
-    })
+    return jsonify({"active_sessions": len(sessions), "sessions": sessions})
 
 
 # ---------------------------------------------------------------------------
