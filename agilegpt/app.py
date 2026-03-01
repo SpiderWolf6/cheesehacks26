@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 from datetime import datetime
 from typing import Any, Dict
 from orchestrator.engine import Orchestrator
@@ -148,7 +149,8 @@ def update_profile(session_id: str) -> Any:
 def confirm_and_handoff(session_id: str) -> Any:
     """
     User confirms the profile is correct.
-    Generates the PM-ready context paragraph.
+    Starts the AgileGPT pipeline in a background thread using session_id as
+    the project_id so /pipeline/status can look it up.
 
     Returns:
     {
@@ -164,9 +166,22 @@ def confirm_and_handoff(session_id: str) -> Any:
     # Mark as confirmed
     manager.confirm_profile(session_id)
     profile = manager.get_profile(session_id)
+
     # Generate PM handoff paragraph
     pm_context = rag_service.build_pm_context(profile)
-    orch.run_full_pipeline("placeholder_1", pm_context)
+
+    # Run the full pipeline in a background thread so this endpoint returns
+    # immediately and the frontend can start polling /pipeline/status.
+    def run_pipeline() -> None:
+        try:
+            orch.run_full_pipeline(session_id, pm_context)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).error("Pipeline error for %s: %s", session_id, exc)
+
+    thread = threading.Thread(target=run_pipeline, daemon=True)
+    thread.start()
+
     return jsonify({
         "session_id": session_id,
         "confirmed_at": datetime.utcnow().isoformat(),
@@ -176,7 +191,97 @@ def confirm_and_handoff(session_id: str) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# 5. Session management
+# 5. Pipeline status — polled by the frontend every 5 seconds
+# ---------------------------------------------------------------------------
+
+@app.get("/pipeline/status/<session_id>")
+def pipeline_status(session_id: str) -> Any:
+    """
+    Return the current state of the AgileGPT pipeline for a session.
+
+    Returns:
+    {
+      "session_id":     "string",
+      "is_planning":    bool,       # true while PM is still generating the plan
+      "current_sprint": int,
+      "total_sprints":  int,
+      "sprints": [
+        { "number": int, "name": str, "status": "pending"|"in_progress"|"completed" }
+      ]
+    }
+    """
+    state = orch.active_projects.get(session_id)
+    if not state:
+        # Pipeline hasn't started yet (thread hasn't called start_project yet)
+        return jsonify({
+            "session_id": session_id,
+            "is_planning": True,
+            "current_sprint": 0,
+            "total_sprints": 0,
+            "sprints": [],
+        })
+
+    # Build per-sprint status from sprint records
+    sprints_out = []
+    for i, sprint_data in enumerate(state.sprint_plan.get("sprints", []) if state.sprint_plan else []):
+        sprint_num = i + 1
+        record = next(
+            (r for r in state.sprint_records if r.sprint_number == sprint_num), None
+        )
+        sprints_out.append({
+            "number": sprint_num,
+            "name": sprint_data.get("name", f"Sprint {sprint_num}"),
+            "status": record.status if record else "pending",
+        })
+
+    return jsonify({
+        "session_id": session_id,
+        "is_planning": state.total_sprints == 0,
+        "current_sprint": state.current_sprint,
+        "total_sprints": state.total_sprints,
+        "sprints": sprints_out,
+    })
+
+
+# ---------------------------------------------------------------------------
+# 6. Jira sprint issues — polled by the frontend every 5 seconds
+# ---------------------------------------------------------------------------
+
+@app.get("/jira/sprint-issues")
+def jira_sprint_issues() -> Any:
+    """
+    Fetch all issues in the currently active Jira sprint.
+
+    Returns:
+    {
+      "issues": [
+        { "id": str, "title": str, "status": str, "role": str }
+      ]
+    }
+    """
+    try:
+        issues = orch.jira_issues.get_all(
+            jql="sprint in openSprints()",
+            max_results=50,
+        )
+        return jsonify({
+            "issues": [
+                {
+                    "id": issue.id,
+                    "title": issue.title,
+                    "status": issue.status,
+                    "role": issue.role,
+                }
+                for issue in issues
+            ]
+        })
+    except Exception as exc:
+        # Return empty list rather than a 500 so the frontend degrades gracefully
+        return jsonify({"issues": [], "error": str(exc)})
+
+
+# ---------------------------------------------------------------------------
+# 7. Session management
 # ---------------------------------------------------------------------------
 
 @app.get("/session/<session_id>/transcript")
