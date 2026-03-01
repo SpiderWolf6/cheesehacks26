@@ -7,7 +7,7 @@ import os
 import tempfile
 from datetime import datetime
 from typing import Any, Dict
-
+from orchestrator.engine import Orchestrator
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from agents import manager
@@ -15,7 +15,7 @@ from services import rag_service
 
 app = Flask(__name__)
 CORS(app)
-
+orch = Orchestrator()
 
 # ---------------------------------------------------------------------------
 # Health
@@ -164,10 +164,9 @@ def confirm_and_handoff(session_id: str) -> Any:
     # Mark as confirmed
     manager.confirm_profile(session_id)
     profile = manager.get_profile(session_id)
-
     # Generate PM handoff paragraph
     pm_context = rag_service.build_pm_context(profile)
-
+    orch.run_full_pipeline("placeholder_1", pm_context)
     return jsonify({
         "session_id": session_id,
         "confirmed_at": datetime.utcnow().isoformat(),
