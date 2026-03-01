@@ -106,19 +106,21 @@ class Issues:
 		self,
 		project_key: Optional[str] = None,
 		jql: Optional[str] = None,
-		issue_ids: Optional[List[str]] = None,
+		task_ids: Optional[List[int]] = None,
 		fields: str = "id,summary,description,status",
 		max_results: int = 100,
 	) -> List[JiraTask]:
 		resolved_project_key = (project_key or self.client.project_key or "").strip()
 		resolved_jql = jql or (f"project = {resolved_project_key}" if resolved_project_key else "")
-		if issue_ids:
-			normalized_ids: List[str] = [str(issue_id).strip() for issue_id in issue_ids if str(issue_id).strip()]
-			if normalized_ids:
-				serialized_ids = ",".join(
-					issue_id if issue_id.isdigit() else f'"{issue_id.replace('"', '\\"')}"'
-					for issue_id in normalized_ids
-				)
+		if task_ids:
+			normalized_task_ids: List[int] = []
+			for task_id in task_ids:
+				if isinstance(task_id, bool):
+					continue
+				if isinstance(task_id, int) and task_id > 0:
+					normalized_task_ids.append(task_id)
+			if normalized_task_ids:
+				serialized_ids = ",".join(str(task_id) for task_id in normalized_task_ids)
 				id_filter = f"id in ({serialized_ids})"
 				resolved_jql = f"({resolved_jql}) AND {id_filter}" if resolved_jql else id_filter
 		if not resolved_jql:
@@ -234,7 +236,13 @@ class Issues:
 			self.last_update_error = {"reason": "update_text is required."}
 			return None
 
-		tasks = self.get_all(issue_ids=[resolved_task_id], max_results=1)
+		try:
+			resolved_task_id_int = int(resolved_task_id)
+		except ValueError:
+			self.last_update_error = {"reason": "Task id must be an integer.", "task_id": resolved_task_id}
+			return None
+
+		tasks = self.get_all(task_ids=[resolved_task_id_int], max_results=1)
 		if not tasks:
 			self.last_update_error = {"reason": "Task not found.", "task_id": resolved_task_id}
 			return None
