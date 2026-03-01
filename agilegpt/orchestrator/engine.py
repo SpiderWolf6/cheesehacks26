@@ -45,7 +45,19 @@ Brand Tone: Professional, hopeful, urgent, community-focused, and collaborative 
 
 Key Programs & Services include tiger conservation, oceans futures, plastics treaty advocacy, GRID, 30x30, Tribal Buffalo Lifeways, ManglarIA, education and financing initiatives.
 
-Build Requirements: communicate mission, vision, programs, impact, leadership, events, and financial transparency clearly; feature visual storytelling and photography; emphasize urgent yet hopeful messaging; make pathways for donations, volunteering, advocacy, and partnerships obvious; support global and Indigenous audiences; be easy to navigate; and integrate tools for donations, email subscriptions, and contact forms where applicable.
+Build Requirements:
+- Build a visually stunning, modern website using React for the frontend and Flask for the backend API.
+- Communicate mission, vision, programs, impact, leadership, events, and financial transparency clearly.
+- Feature rich visual storytelling with hero sections, image galleries, and interactive elements.
+- Emphasize urgent yet hopeful messaging throughout the design.
+- Make pathways for donations, volunteering, advocacy, and partnerships obvious and accessible.
+- Support global and Indigenous audiences with inclusive design.
+- Easy to navigate with a professional navigation system and smooth scrolling.
+- Integrate interactive tools for donations, email subscriptions, and contact forms.
+- Use a nature-inspired color palette with greens, earth tones, and clean whites.
+- Include smooth animations, transitions, and micro-interactions for a polished feel.
+- Ensure responsive design that works beautifully on mobile, tablet, and desktop.
+- The result should look like a professionally designed website, not a student project.
 """.strip()
 
 
@@ -54,7 +66,10 @@ Build Requirements: communicate mission, vision, programs, impact, leadership, e
 # ---------------------------------------------------------------------------
 
 def _parse_json(raw: str) -> Optional[Dict[str, Any]]:
-    """Try to parse JSON from LLM output, stripping markdown fences if present."""
+    """Try to parse JSON from LLM output, stripping markdown fences if present.
+
+    Also attempts to repair truncated JSON by closing open brackets/braces.
+    """
     text = raw.strip()
     if text.startswith("```"):
         lines = text.split("\n")
@@ -63,13 +78,64 @@ def _parse_json(raw: str) -> Optional[Dict[str, Any]]:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            try:
-                return json.loads(text[start:end + 1])
-            except json.JSONDecodeError:
-                pass
+        pass
+
+    # Try extracting the outermost JSON object.
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(text[start:end + 1])
+        except json.JSONDecodeError:
+            pass
+
+    # Attempt to repair truncated JSON by closing open brackets/braces.
+    if start != -1:
+        fragment = text[start:]
+        # Close any open string literal.
+        in_string = False
+        escape = False
+        for ch in fragment:
+            if escape:
+                escape = False
+                continue
+            if ch == '\\':
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+        if in_string:
+            fragment += '"'
+        # Count open brackets/braces and close them.
+        opens = []
+        in_str = False
+        esc = False
+        for ch in fragment:
+            if esc:
+                esc = False
+                continue
+            if ch == '\\':
+                esc = True
+                continue
+            if ch == '"':
+                in_str = not in_str
+                continue
+            if in_str:
+                continue
+            if ch in ('{', '['):
+                opens.append(ch)
+            elif ch == '}' and opens and opens[-1] == '{':
+                opens.pop()
+            elif ch == ']' and opens and opens[-1] == '[':
+                opens.pop()
+        # Close in reverse order.
+        for bracket in reversed(opens):
+            fragment += ']' if bracket == '[' else '}'
+        try:
+            return json.loads(fragment)
+        except json.JSONDecodeError:
+            pass
+
     return None
 
 
@@ -135,6 +201,28 @@ def _run_command(workspace: str, cmd: str, timeout: int = 60) -> Dict[str, Any]:
         return {"returncode": -1, "stdout": "", "stderr": str(e)}
 
 
+def _scan_workspace_files(workspace: str) -> Dict[str, str]:
+    """Scan workspace directory for source files. Returns relative_path -> content."""
+    files: Dict[str, str] = {}
+    skip_dirs = {'.venv', '__pycache__', 'node_modules', '.git'}
+    source_exts = {'.py', '.js', '.jsx', '.html', '.css', '.json', '.txt', '.md'}
+    for root, dirs, filenames in os.walk(workspace):
+        dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith('.')]
+        for fname in filenames:
+            ext = os.path.splitext(fname)[1].lower()
+            if ext in source_exts:
+                full_path = os.path.join(root, fname)
+                rel_path = os.path.relpath(full_path, workspace).replace("\\", "/")
+                try:
+                    with open(full_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    if len(content) < 50000:  # Skip overly large files
+                        files[rel_path] = content
+                except Exception:
+                    pass
+    return files
+
+
 def _start_backend(workspace: str) -> Optional[subprocess.Popen]:
     """Start the Flask backend in the workspace. Returns the process or None."""
     app_path = os.path.join(workspace, "app.py")
@@ -187,13 +275,26 @@ def _stop_backend(proc: Optional[subprocess.Popen]) -> None:
 
 
 def _classify_task(description: str) -> str:
-    """Return 'backend', 'frontend', or 'qa' based on task description prefix."""
+    """Return 'backend', 'frontend', or 'qa' based on task description prefix.
+
+    The PM agent is instructed to start every task description with exactly
+    'backend', 'frontend', or 'integration'. We check the first word and
+    fall back to keyword scanning if the prefix is missing.
+    """
     first_word = description.strip().split()[0].lower() if description.strip() else ""
     if first_word == "backend":
         return "backend"
     if first_word == "frontend":
         return "frontend"
     if first_word in ("integration", "qa", "test"):
+        return "qa"
+    # Fallback: scan the description for keywords in case PM formatting drifted.
+    desc_lower = description.lower()
+    if "backend" in desc_lower or "flask" in desc_lower or "app.py" in desc_lower:
+        return "backend"
+    if "frontend" in desc_lower or "react" in desc_lower or "index.html" in desc_lower:
+        return "frontend"
+    if "test" in desc_lower or "integration" in desc_lower or "pytest" in desc_lower or "validate" in desc_lower:
         return "qa"
     return "unknown"
 
@@ -232,6 +333,7 @@ class Orchestrator:
         self.qa_agent = QAAgent(self.llm_service)
 
         self.active_projects: Dict[str, ProjectState] = {}
+        self._site_processes: Dict[str, subprocess.Popen] = {}
 
     # ------------------------------------------------------------------
     # 1. Project initialization
@@ -311,11 +413,16 @@ class Orchestrator:
     # ------------------------------------------------------------------
 
     def run_all_sprints(self, project_id: str) -> List[Dict[str, Any]]:
-        """Execute all sprints sequentially. Returns results per sprint."""
+        """Execute all sprints sequentially. Returns results per sprint.
+
+        Uses a while loop instead of for-range because the PM review step
+        may insert additional sprints, changing state.total_sprints mid-run.
+        """
         state = self.active_projects[project_id]
         all_results = []
 
-        for sprint_idx in range(state.total_sprints):
+        sprint_idx = 0
+        while sprint_idx < state.total_sprints:
             sprint_num = sprint_idx + 1
             state.current_sprint = sprint_num
             logger.info("=== Starting Sprint %d/%d ===", sprint_num, state.total_sprints)
@@ -326,11 +433,12 @@ class Orchestrator:
             # PM reviews completed sprint and adjusts future tasks.
             if sprint_idx < state.total_sprints - 1:
                 self._pm_review_and_adjust(state, sprint_idx)
-                # Create next sprint on JIRA.
+                # total_sprints may have changed if PM inserted a sprint.
                 next_sprint_data = state.sprint_plan["sprints"][sprint_idx + 1]
                 self._create_jira_sprint(state, sprint_index=sprint_idx + 1, sprint_data=next_sprint_data)
 
             logger.info("=== Sprint %d complete ===", sprint_num)
+            sprint_idx += 1
 
         return all_results
 
@@ -433,6 +541,21 @@ class Orchestrator:
         # Build agent-specific memory.
         memory = state.agent_memory.get(agent.name, AgentMemory())
 
+        # Scan actual workspace files for accurate, up-to-date context.
+        workspace_files = _scan_workspace_files(state.workspace_path)
+
+        # Filter files relevant to this agent type to reduce context size.
+        if task_type == "backend":
+            relevant_files = {p: c for p, c in workspace_files.items()
+                              if p.endswith('.py') and not p.startswith('tests/')}
+        elif task_type == "frontend":
+            relevant_files = {p: c for p, c in workspace_files.items()
+                              if p.endswith(('.html', '.css', '.js')) and not p.startswith('tests/')}
+        elif task_type == "qa":
+            relevant_files = workspace_files
+        else:
+            relevant_files = workspace_files
+
         # Build context the agent receives.
         context = {
             "project_id": state.project_id,
@@ -441,9 +564,10 @@ class Orchestrator:
             "task": task,
             "shared_contract": state.shared_contract,
             "handoff_contract": state.handoff_contract,
-            # Agent memory: what files exist, what was done before.
+            # Workspace files: actual content from disk, filtered by agent role.
             "project_state_summary": {
-                "current_files": memory.files_written,
+                "current_files": relevant_files,
+                "workspace_file_listing": sorted(workspace_files.keys()),
                 "previous_work": memory.work_log[-5:] if memory.work_log else [],
             },
         }
@@ -493,6 +617,11 @@ class Orchestrator:
         success = True
         if cmd_results:
             success = all(r["returncode"] == 0 for r in cmd_results)
+            # Log test output for debugging.
+            for cr in cmd_results:
+                if cr.get("returncode") != 0:
+                    logger.warning("Command failed: %s\nSTDOUT:\n%s\nSTDERR:\n%s",
+                                   cr.get("cmd", ""), cr.get("stdout", "")[:1000], cr.get("stderr", "")[:1000])
 
         return {
             "success": success,
@@ -566,6 +695,23 @@ class Orchestrator:
 
             logger.info("PM adjusted future sprints after Sprint %d", completed_sprint_index + 1)
 
+        elif action == "insert_sprint" and state.total_sprints < 5:
+            new_sprint = review.get("new_sprint")
+            if new_sprint and isinstance(new_sprint, dict):
+                insert_at = completed_sprint_index + 1
+                state.sprint_plan["sprints"].insert(insert_at, new_sprint)
+                state.total_sprints += 1
+                # Renumber sprint names for consistency.
+                for i, s in enumerate(state.sprint_plan["sprints"]):
+                    s["name"] = f"Sprint {i + 1}"
+                logger.info("PM inserted new sprint after Sprint %d (total now %d)",
+                            completed_sprint_index + 1, state.total_sprints)
+            else:
+                logger.warning("PM requested insert_sprint but provided no valid new_sprint data")
+
+        elif action == "insert_sprint" and state.total_sprints >= 5:
+            logger.warning("PM requested insert_sprint but already at max 5 sprints, ignoring")
+
         # Write updated plan to disk.
         _write_file(state.workspace_path, "scrum_plan.json",
                      json.dumps(state.sprint_plan, indent=2))
@@ -633,15 +779,60 @@ class Orchestrator:
     # ------------------------------------------------------------------
 
     def run_full_pipeline(self, project_id: str, clarified_story: str) -> Dict[str, Any]:
-        """One-shot: start project -> plan -> execute all sprints."""
+        """One-shot: start project -> plan -> execute all sprints -> launch site."""
         self.start_project(project_id, clarified_story)
         plan = self.run_planning(project_id)
         sprint_results = self.run_all_sprints(project_id)
         state = self.active_projects[project_id]
-        return {
+        result = {
             "project_id": project_id,
             "workspace": state.workspace_path,
             "total_sprints": state.total_sprints,
             "plan": plan,
             "sprint_results": sprint_results,
         }
+        # Automatically launch the site for the user to browse.
+        self.launch_site(project_id)
+        return result
+
+    # ------------------------------------------------------------------
+    # End-of-SCRUM: launch site on localhost
+    # ------------------------------------------------------------------
+
+    def launch_site(self, project_id: str) -> Optional[subprocess.Popen]:
+        """Start the completed site on localhost:5000 for the user to browse.
+
+        Called automatically at the end of run_full_pipeline. Can also be
+        called standalone after run_all_sprints. The Flask process runs in
+        the background and stays alive until stop_site() is called or the
+        Orchestrator is garbage-collected.
+        """
+        state = self.active_projects[project_id]
+        workspace = state.workspace_path
+
+        # Ensure requirements are installed.
+        req_path = os.path.join(workspace, "requirements.txt")
+        if os.path.exists(req_path):
+            with open(req_path, "r", encoding="utf-8") as f:
+                reqs = [line.strip() for line in f if line.strip()]
+            _pip_install(workspace, reqs)
+
+        proc = _start_backend(workspace)
+        if not proc:
+            logger.error("Could not launch site — no running backend.")
+            return None
+
+        self._site_processes[project_id] = proc
+
+        print("\n" + "=" * 60)
+        print("  YOUR SITE IS LIVE!")
+        print("  Open http://localhost:5000 in your browser")
+        print("  Press Ctrl+C to stop the server")
+        print("=" * 60 + "\n")
+
+        return proc
+
+    def stop_site(self, project_id: str) -> None:
+        """Stop a previously launched site."""
+        proc = self._site_processes.pop(project_id, None)
+        _stop_backend(proc)
