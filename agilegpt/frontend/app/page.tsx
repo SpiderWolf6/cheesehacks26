@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = "http://136.119.39.142:8000";
 
 type Theme = "dark" | "light";
 type Message = { role: "user" | "assistant"; content: string };
