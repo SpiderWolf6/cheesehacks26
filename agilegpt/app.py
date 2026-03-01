@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from typing import Any, Dict
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from orchestrator.engine import Orchestrator
 from agents import manager
-
+from services import rag_service
 
 # Global orchestrator instance for this simple MVP scaffold.
-# Request flow (current): API request -> Flask endpoint -> simple response.
-# Request flow (future): API request -> Manager agent -> Orchestrator + agents.
 orchestrator = Orchestrator()
 
 app = Flask(__name__)
@@ -27,14 +27,7 @@ def health() -> Any:
 
 @app.post("/chat")
 def chat() -> Any:
-    """Temporary chat endpoint.
-
-    Expected JSON body:
-    {
-      "project_id": "string",
-      "message": "string"
-    }
-    """
+    """Temporary chat endpoint."""
     payload: Dict[str, Any] = request.get_json(silent=True) or {}
     project_id = payload.get("project_id", "")
     message = payload.get("message", "")
@@ -42,7 +35,6 @@ def chat() -> Any:
     if not isinstance(project_id, str) or not isinstance(message, str):
         return jsonify({"error": "project_id and message must be strings"}), 400
 
-    # TODO: Route message through Manager agent and orchestration flow.
     return jsonify({"project_id": project_id, "echo": message})
 
 
@@ -54,16 +46,54 @@ def chat() -> Any:
 def new_session() -> Any:
     """
     Create a new consultant session and return an opening greeting.
-    Call this when a new org starts a conversation.
+
+    Optionally accepts a multipart/form-data POST with an annual report PDF:
+      - Field name: "annual_report"  (file upload, PDF)
+
+    If a PDF is provided, it is processed through the RAG pipeline first.
+    The consultant will then know what was already extracted and only ask
+    about the remaining gaps.
 
     Returns:
     {
-      "session_id": "string",
-      "greeting":   "string"
+      "session_id":    "string",
+      "greeting":      "string",
+      "prefilled":     { ... } | null,   // fields extracted from the PDF
+      "found_keys":    [ ... ] | null,   // dot-path keys that were found
+      "missing_keys":  [ ... ] | null    // dot-path keys still needed
     }
     """
-    result = manager.create_session()
-    return jsonify(result)
+    pdf_file = request.files.get("annual_report")
+
+    prefill_context: str | None = None
+    rag_result: dict | None = None
+
+    if pdf_file:
+        # Save to a temp file and run RAG extraction
+        suffix = ".pdf"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            pdf_file.save(tmp.name)
+            tmp_path = tmp.name
+
+        try:
+            rag_result = rag_service.extract_from_annual_report(tmp_path)
+            prefill_context = rag_service.build_prefill_context_block(rag_result)
+        except Exception as exc:
+            return jsonify({"error": f"Failed to process annual report: {exc}"}), 500
+        finally:
+            os.unlink(tmp_path)
+
+    session_result = manager.create_session(
+        prefill_context=prefill_context,
+        prefilled_data=rag_result["prefilled"] if rag_result else None,
+    )
+
+    return jsonify({
+        **session_result,
+        "prefilled":    rag_result["prefilled"]   if rag_result else None,
+        "found_keys":   rag_result["found_keys"]  if rag_result else None,
+        "missing_keys": rag_result["missing_keys"] if rag_result else None,
+    })
 
 
 @app.post("/consultant/chat")
@@ -101,16 +131,7 @@ def consultant_chat() -> Any:
 
 @app.get("/consultant/session/<session_id>/transcript")
 def get_transcript(session_id: str) -> Any:
-    """
-    Returns the full conversation transcript for a session.
-
-    Returns:
-    {
-      "session_id": "string",
-      "metadata":   { "created_at": ..., "last_active": ..., "message_count": ... },
-      "transcript": [ { "role": "user"|"assistant", "content": "string" } ]
-    }
-    """
+    """Returns the full conversation transcript for a session."""
     if not manager.session_exists(session_id):
         return jsonify({"error": "Session not found."}), 404
 
@@ -126,16 +147,6 @@ def get_requirements(session_id: str) -> Any:
     """
     Runs the extraction LLM over the conversation and returns a structured
     JSON brief with all gathered website requirements.
-
-    Call this when the consultant signals it's done or the user
-    types 'generate summary'.
-
-    Returns:
-    {
-      "session_id":   "string",
-      "generated_at": "ISO timestamp",
-      "requirements": { ... }
-    }
     """
     if not manager.session_exists(session_id):
         return jsonify({"error": "Session not found."}), 404
@@ -157,19 +168,7 @@ def get_requirements(session_id: str) -> Any:
 
 @app.get("/consultant/session/<session_id>/summary")
 def get_full_summary(session_id: str) -> Any:
-    """
-    Returns transcript + extracted requirements in one call.
-    Use this for the final 'export brief' action on the frontend.
-
-    Returns:
-    {
-      "session_id":    "string",
-      "created_at":    "ISO timestamp",
-      "message_count": int,
-      "transcript":    [ ... ],
-      "requirements":  { ... }
-    }
-    """
+    """Returns transcript + extracted requirements in one call."""
     if not manager.session_exists(session_id):
         return jsonify({"error": "Session not found."}), 404
 
