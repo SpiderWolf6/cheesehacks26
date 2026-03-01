@@ -544,7 +544,7 @@ function PipelineScreen({ sessionId, orgName, theme, onToggleTheme, t }: {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function NonprofitExtractor() {
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>("light");
   const [phase, setPhase] = useState<"upload" | "processing" | "review" | "pipeline" | "done">("upload");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [profile, setProfile] = useState<Record<string, any>>({});
@@ -678,14 +678,25 @@ export default function NonprofitExtractor() {
       <style>{fonts}</style>
       <div className="absolute top-4 right-4"><ThemeToggle theme={theme} onToggle={toggleTheme} t={t} /></div>
 
-      <div className="w-full max-w-md">
-        <div className="mb-10">
-          <div className="text-teal-500 text-xs font-semibold tracking-[0.3em] uppercase mb-3">AgileGPT</div>
-          <h1 style={{ fontFamily: "'Instrument Serif', serif" }} className={`text-4xl ${t.textPrimary} leading-tight mb-3`}>
-            Nonprofit <em className="text-teal-500">Development Team</em>
+      <div className="w-[min(88vw,52rem)]">
+        <div className="mb-12">
+          <div className="flex items-center justify-start gap-3 mb-5">
+            <img
+              src="/aa_logo_icon.png"
+              alt="AgileGPT logo icon"
+              className="w-14 h-auto object-contain shrink-0"
+            />
+            <img
+              src="/aa_logo_text.png"
+              alt="AgileGPT"
+              className="w-64 h-auto object-contain"
+            />
+          </div>
+          <h1 style={{ fontFamily: "'Instrument Serif', serif" }} className={`text-6xl md:text-7xl ${t.textPrimary} leading-[1.05] mb-6`}>
+            Nonprofit <em className="text-teal-500">AI Development Team</em>
           </h1>
-          <p className={`${t.textMuted} text-sm leading-relaxed max-w-sm`}>
-            Upload an annual report. We'll extract everything we can about the organization and prepare it for the PM.
+          <p className={`${t.textMuted} text-lg leading-relaxed max-w-xl`}>
+            Upload an annual report. We'll extract everything we can about the organization and prepare it for the project manager.
           </p>
         </div>
 
@@ -694,7 +705,7 @@ export default function NonprofitExtractor() {
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
-          className={`border-2 border-dashed rounded-xl p-10 cursor-pointer transition-all mb-4
+          className={`border-2 border-dashed rounded-xl p-12 md:p-14 min-h-[18rem] flex items-center justify-center cursor-pointer transition-all mb-6
             ${dragOver ? "border-teal-400 bg-teal-400/5"
               : uploadedFile ? "border-emerald-400 bg-emerald-400/5"
               : `${t.border} ${t.surfaceBg2} hover:border-teal-400/60`}`}>
@@ -726,7 +737,7 @@ export default function NonprofitExtractor() {
         </div>
 
         <button onClick={() => uploadedFile && startExtraction(uploadedFile)} disabled={!uploadedFile}
-          className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all bg-teal-500 text-white hover:bg-teal-400 disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.98]">
+          className="w-full py-5 rounded-xl font-semibold text-lg transition-all bg-teal-500 text-white hover:bg-teal-400 disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.98]">
           Extract & Analyse →
         </button>
       </div>
