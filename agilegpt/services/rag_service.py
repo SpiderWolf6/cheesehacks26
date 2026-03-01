@@ -66,149 +66,77 @@ _judge_llm = AzureChatOpenAI(
 
 @dataclass
 class FieldQuery:
-    key: str          # dot-path into the requirements dict, e.g. "organization.name"
-    query: str        # semantic search query sent to the embedder
-    description: str  # plain-English description sent to the judge LLM
-    multi: bool = False  # True → expect a list of values
-
+    key: str
+    query: str
+    description: str
+    multi: bool = False
 
 FIELD_QUERIES: list[FieldQuery] = [
-    # ── PHASE 1: Organization Overview ──────────────────────────────────────
-    FieldQuery(
-        key="organization.name",
-        query="full legal name of the organization nonprofit",
-        description="The full official/legal name of the nonprofit organization.",
-    ),
-    FieldQuery(
-        key="organization.mission",
-        query="mission statement purpose vision of the organization",
-        description="The organization's mission statement or stated purpose/vision.",
-    ),
-    FieldQuery(
-        key="organization.target_audience",
-        query="who we serve beneficiaries donors volunteers target audience",
-        description=(
-            "The primary audiences the organization serves or targets: "
-            "donors, volunteers, beneficiaries, general public, etc."
-        ),
-    ),
-    FieldQuery(
-        key="organization.tone",
-        query="brand values personality tone voice inspiring warm professional",
-        description=(
-            "The organization's communication tone or brand personality "
-            "(e.g. warm, professional, urgent, inspiring, community-focused)."
-        ),
-    ),
-    FieldQuery(
-        key="organization.website_goals",
-        query="website goals online strategy donations volunteers awareness",
-        description=(
-            "Key goals the organization wants its website to achieve: "
-            "raise donations, recruit volunteers, raise awareness, inform, etc."
-        ),
-        multi=True,
-    ),
-    # ── PHASE 2 / 3: Pages & Content ────────────────────────────────────────
-    FieldQuery(
-        key="pages",
-        query="programs services events team impact stories news blog",
-        description=(
-            "Any programs, services, events, team information, impact stories, "
-            "or news sections that suggest specific website pages are needed."
-        ),
-        multi=True,
-    ),
-    # ── PHASE 4: Features ────────────────────────────────────────────────────
-    FieldQuery(
-        key="features.donation_form",
-        query="donate online donation payment fundraising",
-        description="Evidence that the organization accepts or solicits online donations.",
-    ),
-    FieldQuery(
-        key="features.recurring_donations",
-        query="monthly recurring giving sustaining donors",
-        description="Evidence that recurring / monthly donation programmes exist.",
-    ),
-    FieldQuery(
-        key="features.volunteer_signup",
-        query="volunteer sign up join our team get involved",
-        description="Evidence that the organization recruits volunteers.",
-    ),
-    FieldQuery(
-        key="features.event_calendar",
-        query="upcoming events calendar schedule fundraiser gala",
-        description="Evidence that the organization runs events that would need a calendar.",
-    ),
-    FieldQuery(
-        key="features.newsletter_signup",
-        query="newsletter email list subscribe updates",
-        description="Evidence that the organization sends newsletters or email updates.",
-    ),
-    FieldQuery(
-        key="features.blog",
-        query="blog news articles stories updates press",
-        description="Evidence of a blog, news section, or regular published content.",
-    ),
-    FieldQuery(
-        key="features.multilanguage",
-        query="language translation multilingual Spanish French accessibility",
-        description="Evidence that the organization serves non-English-speaking audiences.",
-    ),
-    FieldQuery(
-        key="features.ada_compliance",
-        query="accessibility ADA compliance disability inclusive",
-        description="Evidence that ADA / accessibility compliance is important to the org.",
-    ),
-    FieldQuery(
-        key="features.other",
-        query="integrations Salesforce Mailchimp PayPal Stripe CRM platform",
-        description=(
-            "Third-party tools or integrations the organization currently uses "
-            "that a website would need to connect with."
-        ),
-        multi=True,
-    ),
-    # ── PHASE 5: Design ──────────────────────────────────────────────────────
-    FieldQuery(
-        key="design.brand_colors",
-        query="brand colors logo color palette visual identity",
-        description="The organization's official brand colors or color palette.",
-        multi=True,
-    ),
-    FieldQuery(
-        key="design.has_existing_logo",
-        query="logo branding visual identity",
-        description="Whether the organization has an existing logo or brand identity.",
-    ),
-    # ── PHASE 6: Technical ───────────────────────────────────────────────────
-    FieldQuery(
-        key="technical.has_domain",
-        query="website domain URL www online presence",
-        description="Whether the organization already has a registered domain name.",
-    ),
-    FieldQuery(
-        key="technical.domain_name",
-        query="website URL domain name www",
-        description="The organization's current website URL or domain name.",
-    ),
-    FieldQuery(
-        key="technical.integrations",
-        query="software tools CRM email platform database technology stack",
-        description="Third-party platforms the organization uses (CRM, email, payments, etc.).",
-        multi=True,
-    ),
-    FieldQuery(
-        key="technical.timeline",
-        query="deadline launch date strategic plan timeline fiscal year",
-        description="Any timeline, launch deadline, or strategic planning horizon mentioned.",
-    ),
-    FieldQuery(
-        key="technical.budget",
-        query="budget funding technology investment annual expenditure",
-        description="Any budget figures relevant to a website or technology project.",
-    ),
+    # ── Organization ─────────────────────────────────────────────────────────
+    FieldQuery(key="organization.name", query="organization name nonprofit charity name", description="The official name of the nonprofit organization."),
+    FieldQuery(key="organization.mission", query="mission statement purpose what we do goal vision", description="The core mission or vision statement of the organization."),
+    FieldQuery(key="organization.target_audience", query="who we serve target audience community beneficiaries", description="The primary people, communities, or causes the organization serves."),
+    FieldQuery(key="organization.tone_keywords", query="brand voice tone values personality", description="The brand personality or tone of the organization as a list of keywords (e.g., ['professional', 'compassionate', 'urgent']).", multi=True),
+    FieldQuery(key="organization.primary_website_goal", query="website goals digital strategy online objective", description="What the organization hopes to achieve with their website (e.g., increase donations, raise awareness)."),
+
+    # ── Pages / Programs (what an annual report reveals about site structure) ─
+    FieldQuery(key="pages", query="programs services initiatives departments what we do", description="Key programs, services, or initiatives that would each need a page or section on the website.", multi=True),
+
+    # ── Actions — Donations ──────────────────────────────────────────────────
+    FieldQuery(key="actions.donations.needed", query="donate online donation form give money fundraising", description="Whether the organization accepts or solicits donations (true/false)."),
+    FieldQuery(key="actions.donations.recurring", query="monthly giving recurring donations sustainers", description="Whether the organization supports monthly or recurring giving (true/false)."),
+
+    # ── Actions — Volunteers ─────────────────────────────────────────────────
+    FieldQuery(key="actions.volunteer_signup.needed", query="volunteer application sign up to help", description="Whether the organization recruits volunteers (true/false)."),
+
+    # ── Actions — Events ─────────────────────────────────────────────────────
+    FieldQuery(key="actions.events.needed", query="events calendar upcoming events schedule gala", description="Whether the organization hosts events that would appear on the website (true/false)."),
+
+    # ── Actions — Newsletter ─────────────────────────────────────────────────
+    FieldQuery(key="actions.newsletter.needed", query="newsletter email list subscribe updates", description="Whether the organization sends newsletters or email updates (true/false)."),
+
+    # ── Accessibility & i18n ─────────────────────────────────────────────────
+    FieldQuery(key="accessibility_and_i18n.multilanguage", query="languages spanish translation multilingual", description="Whether the organization serves communities in multiple languages (true/false)."),
+    FieldQuery(key="accessibility_and_i18n.languages", query="spanish english french bilingual language", description="Specific languages used by the organization.", multi=True),
+    FieldQuery(key="accessibility_and_i18n.ada_compliance_required", query="accessibility ADA compliance WCAG blind deaf", description="Whether accessibility compliance is explicitly mentioned (true/false)."),
+
+    # ── Design ───────────────────────────────────────────────────────────────
+    FieldQuery(key="design.brand_colors", query="brand colors color palette primary colors hex codes", description="The organization's official brand colors.", multi=True),
+    FieldQuery(key="design.has_logo", query="logo brand mark visual identity", description="Whether the organization has an existing logo (true/false)."),
+
+    # ── Logistics ────────────────────────────────────────────────────────────
+    FieldQuery(key="logistics.has_domain", query="domain name website url existing site", description="Whether the organization already has a website or domain (true/false)."),
+    FieldQuery(key="logistics.domain_name", query="domain name url website address .org", description="The specific domain name URL if they have one (e.g., example.org)."),
+    FieldQuery(key="logistics.existing_tools", query="CRM integration salesforce mailchimp blackbaud stripe donorperfect", description="Third-party software the organization already uses (e.g., Stripe, Salesforce, Mailchimp).", multi=True),
+
+    # ── Content inventory ────────────────────────────────────────────────────
+    FieldQuery(key="content_inventory.has_existing_website", query="current website existing site redesign", description="Whether the organization currently has a website (true/false)."),
+    FieldQuery(key="content_inventory.existing_site_url", query="website url current site address", description="The URL of the organization's current website, if any."),
 ]
+
+_KEY_LABELS: dict[str, str] = {
+    "organization.name": "Org Name",
+    "organization.mission": "Mission",
+    "organization.target_audience": "Target Audience",
+    "organization.tone_keywords": "Brand Tone",
+    "organization.primary_website_goal": "Website Goal",
+    "pages": "Programs / Pages",
+    "actions.donations.needed": "Accepts Donations",
+    "actions.donations.recurring": "Recurring Giving",
+    "actions.volunteer_signup.needed": "Recruits Volunteers",
+    "actions.events.needed": "Hosts Events",
+    "actions.newsletter.needed": "Sends Newsletter",
+    "accessibility_and_i18n.multilanguage": "Multi-language",
+    "accessibility_and_i18n.languages": "Languages",
+    "accessibility_and_i18n.ada_compliance_required": "ADA Compliance",
+    "design.brand_colors": "Brand Colors",
+    "design.has_logo": "Has Logo",
+    "logistics.has_domain": "Has Domain",
+    "logistics.domain_name": "Domain Name",
+    "logistics.existing_tools": "Existing Tools",
+    "content_inventory.has_existing_website": "Has Existing Site",
+    "content_inventory.existing_site_url": "Current Site URL",
+}
 
 # ---------------------------------------------------------------------------
 # PDF ingestion & chunking
@@ -412,30 +340,7 @@ def extract_from_annual_report(
 # ---------------------------------------------------------------------------
 
 # Maps dot-path keys to short human labels shown to the consultant LLM.
-_KEY_LABELS: dict[str, str] = {
-    "organization.name":            "Organization name",
-    "organization.mission":         "Mission statement",
-    "organization.target_audience": "Target audience",
-    "organization.tone":            "Brand tone/personality",
-    "organization.website_goals":   "Website goals",
-    "pages":                        "Relevant programs/content for pages",
-    "features.donation_form":       "Online donation form",
-    "features.recurring_donations": "Recurring donations",
-    "features.volunteer_signup":    "Volunteer sign-up",
-    "features.event_calendar":      "Event calendar",
-    "features.newsletter_signup":   "Newsletter sign-up",
-    "features.blog":                "Blog / news section",
-    "features.multilanguage":       "Multi-language support",
-    "features.ada_compliance":      "ADA / accessibility compliance",
-    "features.other":               "Other feature integrations",
-    "design.brand_colors":          "Brand colors",
-    "design.has_existing_logo":     "Existing logo",
-    "technical.has_domain":         "Existing domain",
-    "technical.domain_name":        "Domain name / URL",
-    "technical.integrations":       "Third-party integrations",
-    "technical.timeline":           "Timeline / deadline",
-    "technical.budget":             "Budget",
-}
+# (Defined once above as _KEY_LABELS — no second definition needed.)
 
 
 def build_prefill_context_block(rag_result: dict) -> str:
