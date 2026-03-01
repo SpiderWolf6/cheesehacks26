@@ -1,5 +1,5 @@
 import os
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import requests
 from dotenv import load_dotenv
@@ -104,24 +104,20 @@ class JiraClient:
 	def delete_all_issues(
 		self,
 		project_key: Optional[str] = None,
-		progress_callback: Optional[Callable[[str], None]] = None,
 	) -> Dict[str, Any]:
 		return _delete_all_issues(
 			client=self,
 			project_key=project_key,
-			progress_callback=progress_callback,
 			error_cls=JiraClientError,
 		)
 
 	def delete_all_sprints(
 		self,
 		board_id: Optional[int] = None,
-		progress_callback: Optional[Callable[[str], None]] = None,
 	) -> Dict[str, Any]:
 		return _delete_all_sprints(
 			client=self,
 			board_id=board_id,
-			progress_callback=progress_callback,
 			error_cls=JiraClientError,
 		)
 
@@ -129,13 +125,11 @@ class JiraClient:
 		self,
 		project_key: Optional[str] = None,
 		board_id: Optional[int] = None,
-		progress_callback: Optional[Callable[[str], None]] = None,
 	) -> Dict[str, Any]:
 		return _delete_all_issues_and_sprints(
 			client=self,
 			project_key=project_key,
 			board_id=board_id,
-			progress_callback=progress_callback,
 			error_cls=JiraClientError,
 		)
 
