@@ -11,4 +11,4 @@ PyMuPDF             # used for PDF text extraction (imported as `fitz`)
 Flask-Cors          # CORS support for the Flask backend
 langchain-core
 langchain-community
-sentence-transformers
+
