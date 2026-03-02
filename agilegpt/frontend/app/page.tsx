@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 
-const API_BASE = "http://136.119.39.142:8000";
+const API_BASE = "http://localhost:8000";
 
 type Theme = "dark" | "light";
 type Message = { role: "user" | "assistant"; content: string };
@@ -529,10 +529,30 @@ function PipelineScreen({ sessionId, orgName, theme, onToggleTheme, t }: {
                 issue={issueFor(AGENT_META[role].jiraRole)} theme={theme} t={t} />
             ))}
           </div>
-          <div className={`flex items-center justify-center gap-2 mt-8 ${t.pollingText} text-[11px]`}>
-            <div className={`w-1.5 h-1.5 rounded-full ${t.pollingDot} animate-pulse`} />
-            Refreshing every 5 seconds
-          </div>
+
+          {allDone ? (
+            <div className="mt-8 flex flex-col items-center gap-4">
+              <a
+                href="http://localhost:5000"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full max-w-sm py-4 bg-teal-500 hover:bg-teal-400 text-white text-sm font-semibold rounded-xl transition-all active:scale-[0.98] text-center block"
+              >
+                🚀 Visit Your Site → localhost:5000
+              </a>
+              <button
+                onClick={() => window.location.reload()}
+                className={`text-xs ${t.textFaint} hover:${t.textMuted} transition-colors`}
+              >
+                Start over with a new report
+              </button>
+            </div>
+          ) : (
+            <div className={`flex items-center justify-center gap-2 mt-8 ${t.pollingText} text-[11px]`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${t.pollingDot} animate-pulse`} />
+              Refreshing every 5 seconds
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -545,7 +565,7 @@ function PipelineScreen({ sessionId, orgName, theme, onToggleTheme, t }: {
 
 export default function NonprofitExtractor() {
   const [theme, setTheme] = useState<Theme>("light");
-  const [phase, setPhase] = useState<"upload" | "processing" | "review" | "pipeline" | "done">("upload");
+  const [phase, setPhase] = useState<"upload" | "processing" | "review" | "pipeline">("upload");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [profile, setProfile] = useState<Record<string, any>>({});
   const [questions, setQuestions] = useState<string[]>([]);
@@ -755,49 +775,6 @@ export default function NonprofitExtractor() {
         <div className="w-12 h-12 border-2 border-teal-400 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
         <p className={`${t.textSecondary} font-medium`}>Reading annual report…</p>
         <p className={`${t.textMuted} text-sm mt-1`}>Extracting organization details</p>
-      </div>
-    </div>
-  );
-
-  // ── DONE ──────────────────────────────────────────────────────────────
-
-  if (phase === "done" && pmContext) return (
-    <div className={`min-h-screen ${t.pageBg} flex items-center justify-center p-8 relative`}
-      style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
-      <style>{fonts}</style>
-      <div className="absolute top-4 right-4"><ThemeToggle theme={theme} onToggle={toggleTheme} t={t} /></div>
-      <div className="w-full max-w-2xl">
-        <div className="mb-8 text-center">
-          <div className="w-14 h-14 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-7 h-7 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <h2 style={{ fontFamily: "'Instrument Serif', serif" }} className={`text-2xl ${t.textPrimary} mb-2`}>Ready for the PM</h2>
-          <p className={`${t.textMuted} text-sm`}>This context block will be sent to the Product Manager agent.</p>
-        </div>
-        <div className={`${t.surfaceBg} border ${t.border} rounded-xl p-6 mb-6`}>
-          <div className="text-[10px] font-bold text-teal-500 uppercase tracking-wider mb-3">PM Context</div>
-          <div className={`text-sm ${t.textSecondary} leading-relaxed whitespace-pre-wrap`}>{pmContext}</div>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={() => navigator.clipboard.writeText(pmContext)}
-            className={`flex-1 py-3 ${t.copyBtn} ${t.copyBtnHover} ${t.copyBtnText} text-sm font-medium rounded-xl transition-colors`}>
-            Copy to Clipboard
-          </button>
-          <button onClick={() => {
-            const blob = new Blob([pmContext], { type: "text/plain" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a"); a.href = url;
-            a.download = `${profile.org_name || "nonprofit"}-pm-context.txt`; a.click();
-          }} className="flex-1 py-3 bg-teal-500 hover:bg-teal-400 text-white text-sm font-semibold rounded-xl transition-colors">
-            Download .txt
-          </button>
-        </div>
-        <button onClick={() => { setPhase("upload"); setProfile({}); setPmContext(null); setMessages([]); setSessionId(null); }}
-          className={`w-full mt-3 py-2.5 ${t.textFaint} text-xs transition-colors`}>
-          Start over with a new report
-        </button>
       </div>
     </div>
   );

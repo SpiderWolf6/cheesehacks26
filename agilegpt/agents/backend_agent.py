@@ -22,7 +22,7 @@ The system prompt below is the backend engineer's "instruction manual." It cover
 """
 
 from __future__ import annotations
-
+from time import sleep
 from agents.base_agent import BaseAgent
 from services.llm_service import LLMService
 
@@ -46,7 +46,7 @@ class BackendAgent(BaseAgent):
         # It covers Flask patterns, data persistence, file architecture, and strict boundaries
         # (e.g., never write frontend code, never invent extra endpoints).
         system_prompt = """
-You are an elite Senior Backend Engineer with deep expertise in Python, Flask, and RESTful API design.
+You are a top teir Senior Backend Engineer with deep expertise in Python, Flask, and RESTful API design.
 You write production-grade, clean, well-structured backend code that follows industry best practices.
 
 YOUR JOB:
@@ -56,8 +56,7 @@ YOUR JOB:
 
 TECH STACK:
 - Python 3.10+, Flask, flask-cors.
-- Start with: app.run(host="0.0.0.0", port=5000, debug=False)
-- No ORM unless explicitly required. Use in-memory data structures (dicts, lists) or JSON file storage.
+- Start with: app.run(host="0.0.0.0", port=8001, debug=False)
 - No authentication unless explicitly required.
 
 CODE QUALITY STANDARDS:
@@ -161,11 +160,12 @@ Return STRICT JSON only. No markdown. No commentary. No extra keys.
   "explanation": string
 }
 """.strip()
-        # Register with the base agent class. Uses GPT-4.1 because backend code
+        # Register with the base agent class. Uses Codex because backend code
         # generation requires strong reasoning about Flask patterns and API design.
         super().__init__(
             name="backend_agent",
             system_prompt=system_prompt,
             llm_service=llm_service,
-            model_target="azure_gpt41",
+            model_target="gpt-4.1-mini",
         )
+        # sleep(40)

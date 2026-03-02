@@ -464,6 +464,12 @@ class Orchestrator:
     """
 
     def __init__(self) -> None:
+        # Initialize state dicts FIRST — before any I/O that could raise —
+        # so that app.py's getattr(orch, 'active_projects', {}) always works
+        # even if the constructor partially fails (e.g. bad JIRA credentials).
+        self.active_projects: Dict[str, ProjectState] = {}
+        self._site_processes: Dict[str, subprocess.Popen] = {}
+
         # Load configuration (API keys, model settings, etc.).
         self.config = Config()
         # Create the LLM service — this is the shared connection to the AI provider
@@ -482,11 +488,6 @@ class Orchestrator:
         self.frontend_agent = FrontendAgent(self.llm_service)  # Writes React/HTML/CSS/JS
         self.backend_agent = BackendAgent(self.llm_service)    # Writes Flask/Python API code
         self.qa_agent = QAAgent(self.llm_service)              # Writes and runs tests
-
-        # Active projects — tracks state for each running project by project ID.
-        self.active_projects: Dict[str, ProjectState] = {}
-        # Background Flask processes — tracks running site servers for cleanup.
-        self._site_processes: Dict[str, subprocess.Popen] = {}
 
     # ------------------------------------------------------------------
     # 1. Project initialization — creates the workspace on disk.
@@ -538,12 +539,16 @@ class Orchestrator:
             "clarified_user_story": state.clarified_user_story,
             "current_sprint": 1,
             "sprint_status": "planning",
+            "num_sprints": 5,          # Explicit hint so the PM front-loads all sprints
         }
 
         raw_output = self.pm_agent.planning_mode(planning_context)
+        logger.info("PM raw output length: %d chars", len(raw_output))
+        logger.debug("PM raw output (first 2000):\n%s", raw_output[:2000])
         plan = _parse_json(raw_output)
         if not plan:
-            logger.error("PM planning returned invalid JSON:\n%s", raw_output[:500])
+            logger.error("PM planning returned invalid JSON (raw length=%d):\n%s",
+                         len(raw_output), raw_output[:1000])
             raise ValueError("PM planning did not return valid JSON. Raw output saved to state.")
 
         # Persist plan to state.
@@ -551,6 +556,8 @@ class Orchestrator:
         state.shared_contract = plan.get("shared_contract")
         state.handoff_contract = plan.get("handoff_contract")
         state.total_sprints = len(plan.get("sprints", []))
+        logger.info("PM planned %d sprints (expected 5) — raw output was %d chars",
+                    state.total_sprints, len(raw_output))
 
         # Write plan file to workspace.
         _write_file(state.workspace_path, "scrum_plan.json", json.dumps(plan, indent=2))
@@ -672,6 +679,11 @@ class Orchestrator:
             # We only start it once (when we encounter the first QA task).
             if task_type == "qa" and backend_proc is None:
                 backend_proc = _start_backend(state.workspace_path)
+                # Brief cooldown: backend + frontend calls have just consumed most of
+                # the rate-limit bucket. Waiting here gives it time to refill before
+                # the QA prompt (the largest of the three) hits the API.
+                logger.info("  Cooldown before QA task (15s)…")
+                time.sleep(15)
 
             logger.info("  Running %s task: %s", task_type, task_name)
 
@@ -760,7 +772,17 @@ class Orchestrator:
             relevant_files = {p: c for p, c in workspace_files.items()
                               if p.endswith(('.html', '.css', '.js')) and not p.startswith('tests/')}
         elif task_type == "qa":
-            relevant_files = workspace_files
+            # QA only needs: existing test files (to preserve/extend them),
+            # route files (to know what endpoints exist), app.py (for the app entry),
+            # and index.html (for frontend structure checks).
+            # Sending ALL workspace files makes QA prompts 3-4x larger and burns
+            # rate-limit tokens unnecessarily — QA never needs CSS or full JS components.
+            relevant_files = {
+                p: c for p, c in workspace_files.items()
+                if (p.startswith('tests/')
+                    or p.startswith('routes/')
+                    or p in ('app.py', 'index.html'))
+            }
         else:
             relevant_files = workspace_files
 
@@ -786,10 +808,31 @@ class Orchestrator:
         }
 
         # Send the context to the AI agent and get its response.
-        # This is the actual LLM call — the agent reads its system prompt + this context
-        # and returns a JSON string with files to write and commands to run.
+        # Wraps agent.run() with its own retry layer on top of whatever the
+        # LLMService does internally. Uses true exponential backoff so that
+        # a depleted rate-limit bucket has time to refill between attempts.
+        # Waits: 30s, 90s, 210s (doubling + 30s base) — much more effective
+        # than fixed increments when the API window is ~60 seconds.
         try:
-            raw_output = agent.run(context)
+            raw_output = None
+            last_exc = None
+            for attempt in range(3):
+                try:
+                    raw_output = agent.run(context)
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    # Only retry on rate-limit-style errors.
+                    err_str = str(exc).lower()
+                    if "429" in err_str or "rate" in err_str or "limit" in err_str or "retry" in err_str:
+                        wait = 30 * (2 ** attempt)  # 30s, 60s, 120s
+                        logger.warning("Agent %s rate-limited (attempt %d/3), waiting %ds…",
+                                       agent.name, attempt + 1, wait)
+                        time.sleep(wait)
+                    else:
+                        raise  # non-rate-limit error — don't retry
+            if raw_output is None:
+                raise last_exc
         except Exception as e:
             logger.error("Agent %s failed with error: %s", agent.name, e)
             return {"success": False, "summary": f"Agent error: {e}"}

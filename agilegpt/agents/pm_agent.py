@@ -1,25 +1,6 @@
-"""PM Agent — the Product Manager / Scrum Master AI agent.
-
-This agent acts as the project's PM. It does NOT write code. Instead, it:
-1. PLANS the entire project: breaks down the user story into 7-10 sprints,
-   each with exactly 3 tasks (backend, frontend, QA), and produces a
-   detailed JSON sprint plan with API contracts.
-2. REVIEWS completed sprints: after each sprint, the PM agent examines what
-   passed and failed, and adjusts future sprint tasks to fix issues.
-3. CONTROLS sprint execution: provides guardrails and scope management.
-4. RUNS RETROSPECTIVES: captures lessons learned after sprint completion.
-
-The PM agent's output is pure JSON — no code, no markdown. The orchestrator
-parses this JSON to know what tasks to assign to which dev agents.
-
-The system prompt below is the PM's "instruction manual." It's very long and
-very strict because the PM's output structure must be exact — the orchestrator
-and other agents parse it programmatically. Any drift in format breaks the pipeline.
-"""
+"""PM Agent — the Product Manager / Scrum Master AI agent."""
 
 from __future__ import annotations
-
-import json
 from typing import Dict
 
 from agents.base_agent import BaseAgent
@@ -27,34 +8,15 @@ from services.llm_service import LLMService
 
 
 class PMAgent(BaseAgent):
-    """The PM agent — orchestrates planning, reviews, and sprint adjustments.
-
-    This class has four modes, each corresponding to a different phase of the
-    SCRUM cycle. Each mode adds a "mode" tag to the context and calls the
-    base run() method, which sends everything to the AI with the PM's system prompt.
-
-    Modes:
-    - planning_mode():        Produces the full sprint plan JSON at project start.
-    - sprint_control_mode():  Monitors and guides active sprint execution.
-    - review_mode():          Reviews completed sprint results and adjusts future tasks.
-    - retrospective_mode():   Captures lessons learned for continuous improvement.
-    """
-
     def __init__(self, llm_service: LLMService) -> None:
-        # The PM system prompt is intentionally very strict and detailed.
-        # It defines the exact JSON schema the PM must return, the rules for
-        # sprint planning, task description format, shared contract structure,
-        # and more. This strictness is essential because the orchestrator parses
-        # the PM's output programmatically — any deviation breaks the pipeline.
         system_prompt = """
-You are an elite Senior Product Manager and Scrum Master with 15+ years of experience shipping production software.
+You are a top tier Senior Product Manager and Scrum Master with 15+ years of experience shipping production software.
 You operate in strict execution mode. You think like a real PM at a top-tier software company.
 
 YOUR ROLE:
 - Convert a product requirement into a realistic, ambitious multi-sprint execution plan.
-- Produce exactly 5 sequential sprints. No fewer, no more.
-  - The PM should always plan for 5 sprints regardless of project complexity.
-  - Up to 2 additional sprints may be added later during review mode if critical issues arise (max 7 total), but the initial plan must be exactly 5.
+- You MUST produce EXACTLY the number of sprints specified in the "num_sprints" field of the input context. This is non-negotiable. Do not produce fewer sprints.
+- Sprint names must be 30 characters or fewer.
 - Each sprint must contain exactly 3 tasks: 1 backend, 1 frontend, 1 integration/QA.
 - The integration/QA task MUST produce TWO test files each sprint:
   1. tests/test_api.py for backend API endpoint testing (Python pytest + requests).
@@ -68,14 +30,14 @@ YOUR PLANNING PHILOSOPHY:
 - Subsequent sprints build features from highest to lowest priority, one cohesive feature per sprint.
 - Final sprint should focus on polish: animations, transitions, error states, loading states, final styling, and end-to-end smoke tests.
 - With more sprints you MUST ensure EVERY planned subpage and feature is fully built, coded, and functional by the end. No page should be left as a skeleton or placeholder.
-- Distribute work evenly across sprints. Do not front-load all features into early sprints and leave later sprints thin, or vice versa.
+- Distribute work evenly across all sprints. Do not front-load all features into early sprints and leave later sprints thin, or vice versa.
 
 COMPLETENESS RULES (CRITICAL):
 - Every frontend page, subpage, section, and component that appears in the navigation or is linked from anywhere MUST be fully built with real content and functionality by the final sprint. No dead links, no empty pages, no placeholder text.
 - Every frontend form, button, or interactive element that submits data (donations, signups, contact forms, RSVPs, etc.) MUST have a corresponding backend API endpoint that accepts and PERSISTS the data.
 - The backend MUST persist all user-submitted form data to CSV files in a data/ directory (e.g., data/donations.csv, data/members.csv, data/contacts.csv). Each CSV should have a header row and append new entries. In-memory-only storage is NOT acceptable for user submissions.
 - For every POST endpoint that stores data, there MUST be a corresponding GET endpoint that retrieves the stored entries (e.g., POST /api/donations -> GET /api/donations).
-- For every form that collects user data (donations, members, signups, contacts, etc.), plan a frontend display view that fetches the GET endpoint and shows the stored entries in a styled table or list. For example: a "Recent Donors" section on the donations page, a "Members Directory" on the members page, or a "Submissions" admin view. This gives users visible proof their data was saved and makes the app feel complete.
+- For every form that collects user data, plan a frontend display view that fetches the GET endpoint and shows stored entries in a styled table or list.
 - Plan backend data persistence tasks BEFORE or in the SAME sprint as the frontend forms that POST to them. Never build a frontend form that submits to a nonexistent endpoint.
 - The PM must verify in review mode that every frontend action has a working backend counterpart. If not, the next sprint MUST fix it.
 
@@ -106,10 +68,10 @@ CONTINUITY RULES:
 - This is non-negotiable. Agents will overwrite files without this instruction.
 
 TECHNICAL STACK:
-- Backend: Python 3, Flask, flask-cors. Single app.py unless project needs modules. app.run(host="0.0.0.0", port=5000).
+- Backend: Python 3, Flask, flask-cors. Single app.py unless project needs modules. app.run(host="0.0.0.0", port=8001).
 - Frontend: React 18 via CDN (ReactDOM, React, Babel standalone for JSX). No npm, no Node.js, no build tools. The frontend must work by opening index.html in a browser.
 - Frontend styling: Modern CSS with CSS custom properties, flexbox, grid, animations, transitions. Aim for a polished, professional look. Think Stripe/Linear/Vercel level design quality.
-- Integration: Python requests + pytest. Backend runs on http://localhost:5000.
+- Integration: Python requests + pytest. Backend runs on http://localhost:8001.
 
 ARCHITECTURE RULES:
 - Backend MUST serve the React frontend as static files. This is MANDATORY in Sprint 1:
@@ -157,10 +119,10 @@ SPRINT SEQUENCING RULES:
 - Integration tests must only test endpoints that exist by that sprint.
 
 MODE BEHAVIOR:
-- planning mode: return a full sprint plan JSON.
+- planning mode: return a full sprint plan JSON with EXACTLY num_sprints sprints.
 - sprint_control mode: return control decisions and execution constraints.
 - review mode: may only modify future sprints, never completed sprint tasks.
-- review mode: may insert ONE new sprint (action "insert_sprint") if total sprint count is under 7 AND critical issues require it. Include the new sprint data in a "new_sprint" field with standard sprint schema (3 tasks).
+- review mode: may insert ONE new sprint (action "insert_sprint") if total sprint count is under 10 AND critical issues require it. Include the new sprint data in a "new_sprint" field with standard sprint schema (3 tasks).
 - review mode: if any task has status FAILED, you MUST return action "modified_future_sprints" and update the corresponding task description in the next sprint to include the exact shared_contract endpoint path, request_schema keys, and success_status so the next execution succeeds.
 - retrospective mode: return deterministic improvement actions.
 
@@ -171,120 +133,43 @@ Include a "requirements" array listing all pip packages needed (e.g. ["flask", "
 {
   "project_name": string,
   "requirements": [string],
-  "handoff_contract": {
-    "backend_entrypoint": {
-      "file": string,
-      "start_command": string,
-      "port": integer
-    },
-    "backend_functions": [
-      {
-        "file": string,
-        "function_name": string,
-        "endpoint_id": string,
-        "purpose": string
-      }
-    ],
-    "frontend_calls": [
-      {
-        "file": string,
-        "method": "GET" | "POST" | "PUT" | "DELETE",
-        "path": string,
-        "request_keys": [string],
-        "response_keys": [string]
-      }
-    ],
-    "integration_tests": [
-      {
-        "file": string,
-        "method": "GET" | "POST" | "PUT" | "DELETE",
-        "path": string,
-        "expected_status": integer
-      }
-    ]
-  },
-  "shared_contract": {
-    "version": 1,
-    "api_endpoints": [
-      {
-        "id": string,
-        "method": "GET" | "POST" | "PUT" | "DELETE",
-        "path": string,
-        "request_schema": object,
-        "response_schema": object,
-        "success_status": integer
-      }
-    ]
-  },
-  "sprints": [
-    {
-      "id": "uuid_v4_string",
-      "name": "Sprint X",
-      "goal": string,
-      "tasks": [
-        {
-          "id": "uuid_v4_string",
-          "name": string,
-          "description": string,
-          "status": "TODO"
-        }
-      ]
-    }
-  ]
+  "handoff_contract": { ... },
+  "shared_contract": { "version": 1, "api_endpoints": [ ... ] },
+  "sprints": [ { "id": "uuid_v4_string", "name": "Sprint X", "goal": string, "tasks": [ { "id": "uuid_v4_string", "name": string, "description": string, "status": "TODO" } ] } ]
 }
 """.strip()
-        # Register this agent with its name, system prompt, and the AI model to use.
-        # "azure_gpt41" refers to GPT-4.1 on Azure — a powerful model needed because
-        # the PM must produce long, complex, structurally perfect JSON plans.
         super().__init__(
             name="pm_agent",
             system_prompt=system_prompt,
             llm_service=llm_service,
-            model_target="azure_gpt41",
+            model_target="gpt-4.1",
         )
 
-    # ------------------------------------------------------------------
-    # Planning Mode — called once at project start to create the full sprint plan.
-    # The PM receives the user story and produces a complete JSON plan with
-    # 7-10 sprints, shared API contracts, and handoff contracts.
-    # ------------------------------------------------------------------
-
     def planning_mode(self, context: Dict[str, object]) -> str:
-        """Ask the PM AI to produce the full sprint plan JSON.
+        """Produce the full sprint plan. num_sprints is stated three ways
+        in the output_contract so the model cannot miss or ignore it."""
+        num_sprints = int(context.get("num_sprints", 5))
 
-        Input: The clarified user story (what the client wants built).
-        Output: A large JSON object containing:
-          - project_name: Human-readable project name
-          - shared_contract: Every API endpoint definition (method, path, schemas)
-          - handoff_contract: Maps endpoints to files, functions, and tests
-          - sprints: Array of 7-10 sprints, each with 3 tasks (backend, frontend, QA)
-          - requirements: Python packages to install (flask, flask-cors, etc.)
-
-        The output_contract in the context tells the PM exactly what structure
-        we expect, acting as a schema validator embedded in the prompt.
-        """
         planning_context = dict(context)
         planning_context["mode"] = "planning"
+        planning_context["num_sprints"] = num_sprints  # already set by engine, keep explicit
         planning_context["output_contract"] = {
+            # ── Sprint count stated three ways — model cannot ignore it ──
+            "sprints_count": f"EXACTLY {num_sprints} sprints — not fewer, not more",
+            "sprints_count_minimum": num_sprints,
+            "sprints_count_maximum": num_sprints,
+            # ─────────────────────────────────────────────────────────────
             "root_fields": ["project_name", "handoff_contract", "shared_contract", "sprints"],
-            "sprints_count": "exactly_5_mandatory",
             "tasks_per_sprint": 3,
             "task_fields": ["id", "name", "description", "status"],
             "task_id_format": "uuid_v4_string",
             "backend_stack": "python_flask_only",
-            "backend_runtime": "localhost_5000",
+            "backend_runtime": "localhost_8001",
             "shared_contract_required": True,
             "shared_contract_shape": {
                 "required_fields": ["version", "api_endpoints"],
                 "version": 1,
-                "api_endpoint_fields": [
-                    "id",
-                    "method",
-                    "path",
-                    "request_schema",
-                    "response_schema",
-                    "success_status",
-                ],
+                "api_endpoint_fields": ["id", "method", "path", "request_schema", "response_schema", "success_status"],
                 "method_allowed": ["GET", "POST", "PUT", "DELETE"],
             },
             "description_prefix_allowed": ["frontend", "backend", "integration"],
@@ -310,28 +195,11 @@ Include a "requirements" array listing all pip packages needed (e.g. ["flask", "
         }
         return self.run(planning_context)
 
-    # ------------------------------------------------------------------
-    # Sprint Control Mode — provides real-time guidance during sprint execution.
-    # ------------------------------------------------------------------
-
     def sprint_control_mode(self, context: Dict[str, object]) -> str:
-        """Ask the PM AI to evaluate the current sprint's health and provide guidance.
-
-        This mode monitors whether the sprint is on track, at risk, or blocked,
-        and returns decisions about whether each task should continue, be replanned
-        to the next sprint, or be blocked. It acts as a scope guardrail to prevent
-        agents from drifting off-track during execution.
-        """
         sprint_context = dict(context)
         sprint_context["mode"] = "sprint_control"
         sprint_context["control_contract"] = {
-            "required_fields": [
-                "sprint_id",
-                "overall_status",
-                "task_decisions",
-                "scope_guardrails",
-                "notes",
-            ],
+            "required_fields": ["sprint_id", "overall_status", "task_decisions", "scope_guardrails", "notes"],
             "overall_status_allowed": ["on_track", "at_risk", "blocked"],
             "task_decisions_item_fields": ["task_id", "decision", "reason"],
             "task_decision_allowed": ["continue", "replan_next_sprint", "block"],
@@ -344,34 +212,12 @@ Include a "requirements" array listing all pip packages needed (e.g. ["flask", "
         }
         return self.run(sprint_context)
 
-    # ------------------------------------------------------------------
-    # Review Mode — called AFTER each sprint completes (except the last).
-    # The PM examines what passed and failed, and can modify future sprints
-    # to fix issues or even insert a new sprint if critical problems need it.
-    # This is the "adaptive" part of the SCRUM cycle — the plan evolves
-    # based on actual results, not just the original plan.
-    # ------------------------------------------------------------------
-
     def review_mode(self, context: Dict[str, object]) -> str:
-        """Ask the PM AI to review a completed sprint and adjust the remaining plan.
-
-        The orchestrator provides:
-        - completed_sprint: Which sprint just finished, with pass/fail per task
-        - full_plan: The current sprint plan JSON (so PM can see what's coming next)
-        - shared_contract: The API contract (PM may update it if endpoints changed)
-        - agent_state: What files each agent has written (so PM can reference exact paths)
-
-        The PM returns one of three actions:
-        - "unchanged": Everything is fine, proceed as planned.
-        - "modified_future_sprints": Adjust task descriptions in upcoming sprints
-          (e.g., fix a broken endpoint reference, add missing preservation instructions).
-        - "insert_sprint": Add a brand new sprint to fix critical issues (max 10 total).
-        """
         review_context = dict(context)
         review_context["mode"] = "review"
         review_context["review_contract"] = {
             "allowed_actions": ["unchanged", "modified_future_sprints", "insert_sprint"],
-            "forbidden": ["modifying_completed_sprint_tasks", "adding_sprints_beyond_7_total"],
+            "forbidden": ["modifying_completed_sprint_tasks", "adding_sprints_beyond_10_total"],
             "required_fields": ["action", "sprint_id", "note", "updated_plan"],
             "updated_plan_constraints": [
                 "must remain valid sprint plan JSON matching the original schema exactly",
@@ -381,7 +227,7 @@ Include a "requirements" array listing all pip packages needed (e.g. ["flask", "
                 "if contract drift occurred PM may modify future sprint tasks to fix inconsistencies",
                 "if shared_contract changes version must increment",
                 "PM may not modify completed sprint tasks",
-                "may insert a sprint via insert_sprint action if total is under 5 and critical issues require it",
+                "may insert a sprint via insert_sprint action to fix critical issues that require it",
                 "when remediating failed tasks ensure the updated description is FULLY SELF-CONTAINED with all file paths, function names, API routes, request/response schemas, and preservation instructions",
                 "check agent_state.files to see exact file names each agent has written and reference those exact paths in updated task descriptions",
             ],
@@ -395,7 +241,7 @@ Include a "requirements" array listing all pip packages needed (e.g. ["flask", "
                 "prefer modifying existing future sprint task descriptions; only use insert_sprint for critical issues that cannot be addressed otherwise",
             ],
             "insert_sprint_rules": [
-                "action insert_sprint is allowed ONLY if current total sprint count is less than 7",
+                "action insert_sprint is allowed ONLY if current total sprint count is under 10",
                 "include a 'new_sprint' object in the response following the standard sprint schema with id, name, goal, and exactly 3 tasks",
                 "the orchestrator will insert it after the completed sprint and renumber all subsequent sprints",
                 "use this ONLY for critical issues that cannot be fixed by modifying existing future tasks",
@@ -404,29 +250,13 @@ Include a "requirements" array listing all pip packages needed (e.g. ["flask", "
         }
         return self.run(review_context)
 
-    # ------------------------------------------------------------------
-    # Retrospective Mode — captures lessons learned after sprint completion.
-    # This is the "continuous improvement" step in SCRUM methodology.
-    # ------------------------------------------------------------------
-
     def retrospective_mode(self, context: Dict[str, object]) -> str:
-        """Ask the PM AI to reflect on a completed sprint and identify improvements.
-
-        Returns a structured retrospective with:
-        - what_went_well: Things that worked and should be repeated
-        - what_went_wrong: Issues that need fixing
-        - action_items: Concrete steps assigned to specific agents for the next sprint
-        - carry_forward_to_next_sprint: Unfinished work that needs to continue
-        """
         retro_context = dict(context)
         retro_context["mode"] = "retrospective"
         retro_context["retrospective_contract"] = {
             "required_fields": [
-                "sprint_id",
-                "what_went_well",
-                "what_went_wrong",
-                "action_items",
-                "carry_forward_to_next_sprint",
+                "sprint_id", "what_went_well", "what_went_wrong",
+                "action_items", "carry_forward_to_next_sprint",
             ],
             "action_item_fields": ["owner", "action", "target_sprint"],
             "owner_allowed": ["pm", "frontend_agent", "backend_agent", "qa_agent"],

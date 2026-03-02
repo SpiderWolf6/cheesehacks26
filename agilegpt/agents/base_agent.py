@@ -28,7 +28,7 @@ class BaseAgent:
     - A name (e.g., "pm_agent", "backend_agent") for identification and logging.
     - A system prompt — the detailed instructions that shape how the AI responds.
       This is where the agent's "personality" and expertise are defined.
-    - Access to the LLM service — the connection to the AI model (e.g., GPT-4).
+    - Access to the LLM service — the connection to the AI model (e.g., Codex).
     - A model target — which specific AI model to use for this agent's tasks.
     """
 
@@ -37,12 +37,12 @@ class BaseAgent:
         name: str,
         system_prompt: str,
         llm_service: LLMService,
-        model_target: str = "azure_gpt41",
+        model_target: str = "gpt-4.1",
     ) -> None:
         self.name = name                    # Human-readable agent identifier (e.g., "backend_agent")
         self.system_prompt = system_prompt  # The AI's instructions — defines how this agent behaves
         self.llm_service = llm_service      # Connection to the LLM API (handles the actual AI call)
-        self.model_target = model_target    # Which AI model to use (e.g., "azure_gpt41" for GPT-4.1)
+        self.model_target = model_target    # Which AI model to use (e.g., "openai_codex" for Codex)
 
     def run(self, context: Dict[str, object]) -> str:
         """Send a task to the AI and get back its response.
@@ -61,9 +61,9 @@ class BaseAgent:
         user_content = json.dumps(context, indent=2)
 
         # Call the LLM (AI model) and return its response as raw text.
-        # The LLM service handles the actual HTTP call to the AI provider (e.g., Azure OpenAI).
+        # The LLM service handles the actual HTTP call to the AI provider (OpenAI API).
         return self.llm_service.generate(
             system_prompt=self.system_prompt,
             user_content=user_content,
-            model_target=self.model_target,
+            model_target=self.model_target
         )

@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from dotenv import load_dotenv
-from langchain_openai import AzureChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_community.chat_message_histories import ChatMessageHistory
 
@@ -28,11 +28,9 @@ load_dotenv()
 # LLM
 # ---------------------------------------------------------------------------
 
-llm = AzureChatOpenAI(
-    azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-mini"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+llm = ChatOpenAI(
+    model=os.getenv("OPENAI_MODEL_41_MINI", "gpt-4.1-mini"),
+    api_key=os.getenv("OPENAI_API_KEY"),
     temperature=0.4,
 )
 

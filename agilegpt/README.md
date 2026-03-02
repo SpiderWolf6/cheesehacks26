@@ -11,8 +11,7 @@ This MVP focuses on clean structure, readability, and educational value.
   - `POST /chat` (temporary echo behavior)
 - Loads and validates required environment variables.
 - Defines simple service wrappers for:
-  - OpenAI chat completions (PM agent)
-  - Azure OpenAI chat completions (Dev agents)
+  - OpenAI chat completions (all agents)
   - JIRA REST API calls (partially stubbed)
 - Defines PM + Dev agent class scaffolding.
 - Defines a basic in-memory orchestrator state and engine.
@@ -53,9 +52,9 @@ agilegpt/
 
 ## LLM model routing
 
-- PM agent uses OpenAI o3 (`OPENAI_API_KEY`, `OPENAI_MODEL_O3`).
-- Frontend, Backend, and QA agents use Azure 4.1 (`AZURE_OPENAI_DEPLOYMENT_41`).
-- Azure 4.1 mini is pre-configured as a future option (`AZURE_OPENAI_DEPLOYMENT_41_MINI`).
+- Backend, Frontend, and QA agents use Codex (`OPENAI_MODEL_CODEX`).
+- PM workflows use OpenAI o3 (`OPENAI_MODEL_O3`) for strong reasoning.
+- RAG extraction and review manager use GPT-4.1-mini (`OPENAI_MODEL_41_MINI`).
 
 ## Run
 
@@ -76,4 +75,16 @@ Then open:
 - JIRA methods include TODOs for board/transition mapping.
 - Docker sandbox creation is stubbed in orchestrator TODOs.
 - Structured JSON output enforcement for agents is planned for later.
+
+## Utility scripts
+
+- `list_models.py` – simple helper that prints the list of OpenAI models
+  available to the API key. Run with:
+
+  ```bash
+  python agilegpt/list_models.py
+  ```
+
+  (this is handy for verifying which model IDs you can pass into the
+  `LLMService.generate` method.)
 - Sprint iteration loops and execution policy will be added in future iterations.

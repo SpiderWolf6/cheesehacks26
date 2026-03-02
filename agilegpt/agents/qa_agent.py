@@ -18,7 +18,7 @@ confirm it was persisted) and checks completeness (all nav links lead to real
 pages, all forms connect to working endpoints).
 
 The orchestrator starts the Flask backend BEFORE running QA tasks, so the tests
-can hit http://localhost:5000 directly.
+can hit http://localhost:8001 directly.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ You write TWO types of tests each sprint:
 
 1. BACKEND API TESTS (tests/test_api.py):
 - Use Python with requests library for HTTP calls and pytest as the test framework.
-- Backend runs on http://localhost:5000 (the orchestrator starts it before your tests run).
+- Backend runs on http://localhost:8001 (the orchestrator starts it before your tests run).
 - Structure tests using pytest conventions:
   - Use descriptive test function names: test_<endpoint>_<scenario> (e.g., test_health_returns_200, test_donate_missing_amount_returns_400).
   - Use pytest fixtures for shared setup (e.g., base_url fixture).
@@ -74,10 +74,10 @@ You write TWO types of tests each sprint:
 - Use pytest.mark.parametrize for data-driven tests where it reduces duplication.
 
 2. FRONTEND BEHAVIOR TESTS (tests/test_frontend.py):
-- Use Python with requests library and pytest. Backend must be running on http://localhost:5000.
-- Flask serves static files: GET http://localhost:5000/ returns index.html, GET http://localhost:5000/styles.css returns CSS, GET http://localhost:5000/src/components/Name.js returns component JS.
+- Use Python with requests library and pytest. Backend must be running on http://localhost:8001.
+- Flask serves static files: GET http://localhost:8001/ returns index.html, GET http://localhost:8001/styles.css returns CSS, GET http://localhost:8001/src/components/Name.js returns component JS.
 - Keep frontend tests CONCISE. Maximum 2-3 tests per component. Focus on:
-  a. Fetch http://localhost:5000/ and verify the HTML contains the expected <script> tags for components built so far.
+  a. Fetch http://localhost:8001/ and verify the HTML contains the expected <script> tags for components built so far.
   b. Fetch each component JS file and verify it contains the expected window.ComponentName definition and the expected API fetch call.
 - Do NOT check for specific CSS class names, heading text, or internal DOM structure in tests. Only check for script tags, fetch URLs, and function definitions.
 - Group tests: class TestFrontendStructure (checks index.html), class TestComponentScripts (checks each JS file).
@@ -142,11 +142,11 @@ Return STRICT JSON only. No markdown. No commentary.
   "explanation": string
 }
 """.strip()
-        # Register with the base agent class. Uses GPT-4.1 for accurate test generation
+        # Register with the base agent class. Uses Codex for accurate test generation
         # that correctly references endpoints, schemas, and file paths.
         super().__init__(
             name="qa_agent",
             system_prompt=system_prompt,
             llm_service=llm_service,
-            model_target="azure_gpt41",
+            model_target="gpt-4.1-mini",
         )

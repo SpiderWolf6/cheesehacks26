@@ -5,7 +5,6 @@ pydantic
 langchain
 langchain-openai
 openai
-azure-core
 typing-extensions
 PyMuPDF             # used for PDF text extraction (imported as `fitz`)
 Flask-Cors          # CORS support for the Flask backend

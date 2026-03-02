@@ -22,21 +22,14 @@ class Config:
     def __init__(self) -> None:
         load_dotenv()
 
-        # Azure OpenAI shared connection settings.
-        self.AZURE_OPENAI_API_KEY: str = os.getenv("AZURE_OPENAI_API_KEY", "")
-        self.AZURE_OPENAI_ENDPOINT: str = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+        # OpenAI key and model routing.
+        self.OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
+        self.OPENAI_MODEL_CODEX: str = "gpt-5-codex"
+        self.OPENAI_MODEL_41: str = "gpt-4.1"
+        self.OPENAI_MODEL_41_MINI: str = "gpt-4.1-mini"
+        self.OPENAI_MODEL_O3: str = "o3"
+        self.OPEN_MODEL_51: str = "gpt-5.1"
 
-        # Canonical Azure deployment names for model routing.
-        self.AZURE_OPENAI_DEPLOYMENT_41: str = self._get_first_non_empty(
-            ["AZURE_OPENAI_DEPLOYMENT_41", "AZURE_OPENAI_DEPLOYMENT", "AZURE_OPENAI_DEPLOYMENT_4.1"]
-        )
-        self.AZURE_OPENAI_DEPLOYMENT_41_MINI: str = self._get_first_non_empty(
-            ["AZURE_OPENAI_DEPLOYMENT_41_MINI", "AZURE_OPENAI_DEPLOYMENT_4.1_mini"]
-        )
-
-        # OpenAI key/model for PM agent (o3).
-        self.OPENAI_API_KEY: str = self._get_first_non_empty(["OPENAI_API_KEY", "OPEN_AI_KEY"])
-        self.OPENAI_MODEL_O3: str = os.getenv("OPENAI_MODEL_O3", "o3")
 
         self.JIRA_BASE_URL: str = os.getenv("JIRA_BASE_URL", "")
         self.JIRA_EMAIL: str = os.getenv("JIRA_EMAIL", "")
@@ -57,9 +50,6 @@ class Config:
     def _validate_required_settings(self) -> None:
         """Raise a clear error if required environment variables are missing."""
         required_keys: List[str] = [
-            "AZURE_OPENAI_API_KEY",
-            "AZURE_OPENAI_ENDPOINT",
-            "AZURE_OPENAI_DEPLOYMENT_41",
             "OPENAI_API_KEY",
             "JIRA_BASE_URL",
             "JIRA_EMAIL",
@@ -67,16 +57,13 @@ class Config:
         ]
 
         values: Dict[str, str] = {
-            "AZURE_OPENAI_API_KEY": self.AZURE_OPENAI_API_KEY,
-            "AZURE_OPENAI_ENDPOINT": self.AZURE_OPENAI_ENDPOINT,
-            "AZURE_OPENAI_DEPLOYMENT_41": self.AZURE_OPENAI_DEPLOYMENT_41,
             "OPENAI_API_KEY": self.OPENAI_API_KEY,
             "JIRA_BASE_URL": self.JIRA_BASE_URL,
             "JIRA_EMAIL": self.JIRA_EMAIL,
             "JIRA_API_TOKEN": self.JIRA_API_TOKEN,
         }
 
-        missing_keys: List[str] = [key for key in required_keys if not values[key].strip()]
+        missing_keys: List[str] = [key for key in required_keys if not values[key]]
         if missing_keys:
             missing = ", ".join(missing_keys)
             raise ValueError(

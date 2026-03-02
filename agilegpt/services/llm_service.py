@@ -1,23 +1,22 @@
-"""Minimal multi-provider LLM service wrapper.
+"""Minimal Azure OpenAI LLM service wrapper.
 
 Supported model targets:
+- openai_codex
 - openai_o3
-- azure_gpt41
-- azure_gpt41_mini
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict
-from urllib.parse import parse_qs, urlparse
-
 import requests
+import time
 
 from config import Config
 
 
 class LLMService:
-    """Thin wrapper around OpenAI + Azure OpenAI chat completions.
+    """Thin wrapper around OpenAI chat completions.
 
     The service is intentionally simple:
     - one input format
@@ -27,33 +26,53 @@ class LLMService:
 
     def __init__(self, config: Config) -> None:
         self.config = config
-
-    def generate(self, system_prompt: str, user_content: str, model_target: str = "azure_gpt41") -> str:
+    
+    def generate(self, system_prompt: str, user_content: str, model_target: str = "gpt-4.1") -> str:
         """Send a chat completion request and return assistant text.
 
         model_target controls which provider/model is used.
         """
-        if model_target == "openai_o3":
-            return self._generate_openai_o3(system_prompt, user_content)
-
-        if model_target == "azure_gpt41":
-            return self._generate_azure_chat(
+        if model_target == "gpt-4.1":
+            return self._generate_openai_chat(
                 system_prompt=system_prompt,
                 user_content=user_content,
-                deployment_value=self.config.AZURE_OPENAI_DEPLOYMENT_41,
+                model_name="gpt-4.1",
             )
-
-        if model_target == "azure_gpt41_mini":
-            return self._generate_azure_chat(
+        if model_target == "gpt-4.1-mini":
+            return self._generate_openai_chat(
                 system_prompt=system_prompt,
                 user_content=user_content,
-                deployment_value=self.config.AZURE_OPENAI_DEPLOYMENT_41_MINI,
+                model_name="gpt-4.1-mini",
+            )
+        if model_target == "gpt-5-codex":
+            return self._generate_openai_chat(
+                system_prompt=system_prompt,
+                user_content=user_content,
+                model_name="gpt-5-codex",  # or whichever model you actually want here
+            )
+        if model_target == "o3":
+            return self._generate_openai_chat(
+                system_prompt=system_prompt,
+                user_content=user_content,
+                model_name="o3",
+            )
+        if model_target == "gpt-5.1":
+            return self._generate_openai_chat(
+                system_prompt=system_prompt,
+                user_content=user_content,
+                model_name="gpt-5",
             )
 
         raise ValueError(f"Unsupported model_target: {model_target}")
 
-    def _generate_openai_o3(self, system_prompt: str, user_content: str) -> str:
-        """Call OpenAI chat completions with the configured o3 model."""
+    def _generate_openai_chat(
+        self,
+        system_prompt: str,
+        user_content: str,
+        model_name: str,
+        temperature: float | None = None,
+    ) -> str:
+        """Call OpenAI chat completions with the selected model."""
         url = "https://api.openai.com/v1/chat/completions"
 
         headers: Dict[str, str] = {
@@ -62,77 +81,70 @@ class LLMService:
         }
 
         payload: Dict[str, Any] = {
-            "model": self.config.OPENAI_MODEL_O3,
+            "model": model_name,
+            # "max_completion_tokens": 25000,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
         }
+        if temperature is not None:
+            payload["temperature"] = temperature
 
-        response = requests.post(url, headers=headers, json=payload, timeout=120)
-        response.raise_for_status()
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=300)
+            except requests.exceptions.ReadTimeout:
+                wait = 60
+                print(f"Request timed out. Waiting {wait}s before retry {attempt + 1}/{max_retries}...")
+                time.sleep(wait)
+                continue
 
-        data: Dict[str, Any] = response.json()
-        return data["choices"][0]["message"]["content"]
+            # Rate limit — wait a full minute for TPM window to reset
+            if response.status_code == 429:
+                wait = 60 * (attempt + 1)  # 60s, 120s, 180s, 240s, 300s
+                print(f"Rate limited (429). Waiting {wait}s before retry {attempt + 1}/{max_retries}...")
+                time.sleep(wait)
+                continue
 
-    def _extract_azure_deployment_name(self, deployment_value: str) -> str:
-        """Allow either deployment name or full Azure URL in env values.
+            if response.status_code >= 400:
+                raise requests.HTTPError(
+                    f"{response.status_code} error from OpenAI Chat Completions: {response.text}",
+                    response=response,
+                )
 
-        We prefer deployment names, but this helper makes current env files
-        backward compatible when a full chat completion URL is provided.
+            data: Dict[str, Any] = response.json()
+            content = data["choices"][0]["message"]["content"]
+
+            # Reasoning model used entire token budget thinking — bump and retry
+            if not content:
+                payload["max_completion_tokens"] = payload["max_completion_tokens"] + 8000
+                print(f"Empty response (reasoning budget exhausted). Retrying with {payload['max_completion_tokens']} tokens...")
+                continue
+
+            return content
+
+        raise RuntimeError(f"OpenAI call failed after {max_retries} retries.")
+        # ------------------------------------------------------------------
+        # Utility helpers
+        # ------------------------------------------------------------------
+
+    def list_models(self) -> list[Dict[str, Any]]:
+        """Return the list of models available to the configured API key.
+
+        This mirrors the OpenAI `/v1/models` endpoint and returns the raw
+        ``data`` field so callers can inspect model ids, ownership, etc.
         """
-        cleaned = deployment_value.strip()
-        if not cleaned:
-            return ""
 
-        if "http://" not in cleaned and "https://" not in cleaned:
-            return cleaned
-
-        parsed = urlparse(cleaned)
-        path_parts = [part for part in parsed.path.split("/") if part]
-        if "deployments" in path_parts:
-            deployment_index = path_parts.index("deployments")
-            if deployment_index + 1 < len(path_parts):
-                return path_parts[deployment_index + 1]
-
-        return cleaned
-
-    def _extract_azure_api_version(self, deployment_value: str) -> str:
-        """Get API version from Azure URL when present; otherwise use default."""
-        parsed = urlparse(deployment_value)
-        query = parse_qs(parsed.query)
-        api_version_values = query.get("api-version", [])
-        if api_version_values and api_version_values[0].strip():
-            return api_version_values[0]
-        return "2024-02-15-preview"
-
-    def _generate_azure_chat(self, system_prompt: str, user_content: str, deployment_value: str) -> str:
-        """Call Azure OpenAI chat completions using selected deployment."""
-        endpoint = self.config.AZURE_OPENAI_ENDPOINT.rstrip("/")
-        deployment = self._extract_azure_deployment_name(deployment_value)
-        api_version = self._extract_azure_api_version(deployment_value)
-
-        url = (
-            f"{endpoint}/openai/deployments/{deployment}/chat/completions"
-            f"?api-version={api_version}"
-        )
-
+        url = "https://api.openai.com/v1/models"
         headers: Dict[str, str] = {
             "Content-Type": "application/json",
-            "api-key": self.config.AZURE_OPENAI_API_KEY,
+            "Authorization": f"Bearer {self.config.OPENAI_API_KEY}",
         }
 
-        payload: Dict[str, Any] = {
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-            "temperature": 0.2,
-        }
-
-        # We keep timeout explicit so requests do not hang forever.
-        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        response = requests.get(url, headers=headers, timeout=120)
         response.raise_for_status()
-
-        data: Dict[str, Any] = response.json()
-        return data["choices"][0]["message"]["content"]
+        body: Dict[str, Any] = response.json()
+        # the OpenAI API returns a top-level `data` list containing models
+        return body.get("data", [])

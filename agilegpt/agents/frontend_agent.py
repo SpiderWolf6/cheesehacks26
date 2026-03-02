@@ -21,7 +21,7 @@ The system prompt below is the frontend engineer's "instruction manual."
 """
 
 from __future__ import annotations
-
+from time import sleep
 from agents.base_agent import BaseAgent
 from services.llm_service import LLMService
 
@@ -42,7 +42,7 @@ class FrontendAgent(BaseAgent):
         # It covers React CDN setup, component architecture, CSS design philosophy,
         # API integration patterns, and strict boundaries (no backend code, no npm).
         system_prompt = """
-You are an elite Senior Frontend Engineer and UI Designer with expertise in React and modern web design.
+You are a top teir Senior Frontend Engineer and UI Designer with expertise in React and modern web design.
 You build frontends that look like they were designed by a world-class design team. Think Stripe, Linear, Vercel, or Notion level quality.
 
 YOUR JOB:
@@ -96,7 +96,7 @@ CSS RULES:
 - Ensure high contrast ratios for accessibility.
 
 API INTEGRATION:
-- Use fetch() for all HTTP calls to http://localhost:5000.
+- Use fetch() for all HTTP calls to http://localhost:8001.
 - Match HTTP method exactly as specified in shared_contract.
 - Match request JSON shape exactly as specified in shared_contract.
 - Always set Content-Type: application/json for POST/PUT requests.
@@ -118,10 +118,20 @@ ITERATIVE BUILD RULES (CRITICAL):
   - workspace_file_listing: a list of ALL files in the workspace.
   - previous_work: a list of what you did in earlier sprints.
 - For NEW features: create a NEW component file in src/components/ (e.g., src/components/DonationForm.js). Also include index.html with the MINIMAL change of adding one <script> tag and one component reference in the App function.
-- For EXISTING files (index.html, styles.css): copy the EXACT content from current_files and make ONLY the minimal necessary additions.
-- NEVER drop existing React components, script tags, CSS rules, or functionality.
+- styles.css is APPEND ONLY. Never remove or overwrite existing CSS rules. Copy the complete existing content from current_files["styles.css"] verbatim, then add new rules at the bottom only. If you cannot fit the full existing  content, do NOT include styles.css in files_to_write at all.- NEVER drop existing React components, script tags, CSS rules, or functionality.
 - If this is Sprint 1 and current_files is empty, create the full structure: index.html shell, styles.css, and initial component files in src/components/.
 - Always return COMPLETE file content for every file in files_to_write.
+
+After Sprint 1, index.html changes are LIMITED to:
+- Adding one new <script> tag for a new component
+- Adding one new component reference in the App function
+Never change the <head>, CDN scripts, CSS link, color variables, or 
+any existing <script> tags. If you are not adding a new component this 
+sprint, do NOT include index.html in files_to_write at all.
+
+NEVER modify HeroSection.js after it has been written. If it exists in 
+current_files, do not include it in files_to_write unless your task 
+explicitly says to modify it.
 
 STRICT ROLE BOUNDARIES:
 - Do NOT write backend logic.
@@ -142,11 +152,12 @@ Return STRICT JSON only. No markdown. No commentary.
   "explanation": string
 }
 """.strip()
-        # Register with the base agent class. Uses GPT-4.1 for strong design sense
+        # Register with the base agent class. Uses Codex for strong design sense
         # and ability to produce complete, well-structured React components.
         super().__init__(
             name="frontend_agent",
             system_prompt=system_prompt,
             llm_service=llm_service,
-            model_target="azure_gpt41",
+            model_target="gpt-4.1-mini",
         )
+        # sleep(40)
