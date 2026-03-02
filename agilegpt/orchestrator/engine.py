@@ -338,8 +338,19 @@ def _scan_workspace_files(workspace: str) -> Dict[str, str]:
                     pass
     return files
 
+import urllib.request
 
-def _start_backend(workspace: str) -> Optional[subprocess.Popen]:
+def _wait_for_backend(port: int = 8001, timeout: int = 15) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(f"http://localhost:{port}/", timeout=1)
+            return True
+        except Exception:
+            time.sleep(0.5)
+    return False
+
+def _start_backend(workspace: str, port: int = 8001) -> Optional[subprocess.Popen]:
     """Start the Flask backend server in the workspace as a background process.
 
     The orchestrator starts the backend BEFORE running QA tasks so that
@@ -371,7 +382,10 @@ def _start_backend(workspace: str) -> Optional[subprocess.Popen]:
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
         # Give Flask a moment to start.
-        time.sleep(3)
+        if not _wait_for_backend(port=8001):
+            logger.error("Backend did not become ready within 15s")
+            return None
+        
         if proc.poll() is not None:
             stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
             logger.error("Backend exited immediately: %s", stderr[-500:])
@@ -561,7 +575,7 @@ class Orchestrator:
 
         # Write plan file to workspace.
         _write_file(state.workspace_path, "scrum_plan.json", json.dumps(plan, indent=2))
-
+        _write_file(state.workspace_path, "pytest.ini", "[pytest]\ntestpaths = tests\n")
         # Write requirements.txt from plan if present, otherwise default Flask.
         baseline = ["flask", "flask-cors", "requests", "pytest"]
         requirements = plan.get("requirements")

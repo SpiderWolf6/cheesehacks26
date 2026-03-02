@@ -148,7 +148,7 @@ Include a "requirements" array listing all pip packages needed (e.g. ["flask", "
     def planning_mode(self, context: Dict[str, object]) -> str:
         """Produce the full sprint plan. num_sprints is stated three ways
         in the output_contract so the model cannot miss or ignore it."""
-        num_sprints = int(context.get("num_sprints", 5))
+        num_sprints = int(context.get("num_sprints", 7))
 
         planning_context = dict(context)
         planning_context["mode"] = "planning"

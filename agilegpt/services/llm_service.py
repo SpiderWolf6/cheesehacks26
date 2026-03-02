@@ -1,8 +1,11 @@
 """Minimal Azure OpenAI LLM service wrapper.
 
 Supported model targets:
-- openai_codex
-- openai_o3
+- gpt-4.1
+- gpt-4.1-mini
+# - gpt-5-codex
+# - o3
+# - gpt-5.1
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from config import Config
 
 
 class LLMService:
-    """Thin wrapper around OpenAI chat completions.
+    """Thin wrapper around Azure OpenAI chat completions.
 
     The service is intentionally simple:
     - one input format
@@ -26,62 +29,60 @@ class LLMService:
 
     def __init__(self, config: Config) -> None:
         self.config = config
-    
+
     def generate(self, system_prompt: str, user_content: str, model_target: str = "gpt-4.1") -> str:
         """Send a chat completion request and return assistant text.
 
-        model_target controls which provider/model is used.
+        model_target controls which Azure deployment is used.
         """
         if model_target == "gpt-4.1":
-            return self._generate_openai_chat(
+            return self._generate_azure(
                 system_prompt=system_prompt,
                 user_content=user_content,
-                model_name="gpt-4.1",
+                url=self.config.AZURE_OPENAI_DEPLOYMENT_41,
             )
         if model_target == "gpt-4.1-mini":
-            return self._generate_openai_chat(
+            return self._generate_azure(
                 system_prompt=system_prompt,
                 user_content=user_content,
-                model_name="gpt-4.1-mini",
+                url=self.config.AZURE_OPENAI_DEPLOYMENT_41_MINI,
             )
-        if model_target == "gpt-5-codex":
-            return self._generate_openai_chat(
-                system_prompt=system_prompt,
-                user_content=user_content,
-                model_name="gpt-5-codex",  # or whichever model you actually want here
-            )
-        if model_target == "o3":
-            return self._generate_openai_chat(
-                system_prompt=system_prompt,
-                user_content=user_content,
-                model_name="o3",
-            )
-        if model_target == "gpt-5.1":
-            return self._generate_openai_chat(
-                system_prompt=system_prompt,
-                user_content=user_content,
-                model_name="gpt-5",
-            )
+
+        # if model_target == "gpt-5-codex":
+        #     return self._generate_azure(
+        #         system_prompt=system_prompt,
+        #         user_content=user_content,
+        #         url=self.config.AZURE_OPENAI_DEPLOYMENT_GPT5_CODEX,
+        #     )
+        # if model_target == "o3":
+        #     return self._generate_azure(
+        #         system_prompt=system_prompt,
+        #         user_content=user_content,
+        #         url=self.config.AZURE_OPENAI_DEPLOYMENT_O3,
+        #     )
+        # if model_target == "gpt-5.1":
+        #     return self._generate_azure(
+        #         system_prompt=system_prompt,
+        #         user_content=user_content,
+        #         url=self.config.AZURE_OPENAI_DEPLOYMENT_GPT5,
+        #     )
 
         raise ValueError(f"Unsupported model_target: {model_target}")
 
-    def _generate_openai_chat(
+    def _generate_azure(
         self,
         system_prompt: str,
         user_content: str,
-        model_name: str,
+        url: str,
         temperature: float | None = None,
     ) -> str:
-        """Call OpenAI chat completions with the selected model."""
-        url = "https://api.openai.com/v1/chat/completions"
-
+        """Call an Azure OpenAI chat completions deployment."""
         headers: Dict[str, str] = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.config.OPENAI_API_KEY}",
+            "api-key": self.config.AZURE_OPENAI_API_KEY,
         }
 
         payload: Dict[str, Any] = {
-            "model": model_name,
             # "max_completion_tokens": 25000,
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -110,7 +111,7 @@ class LLMService:
 
             if response.status_code >= 400:
                 raise requests.HTTPError(
-                    f"{response.status_code} error from OpenAI Chat Completions: {response.text}",
+                    f"{response.status_code} error from Azure OpenAI Chat Completions: {response.text}",
                     response=response,
                 )
 
@@ -125,26 +126,28 @@ class LLMService:
 
             return content
 
-        raise RuntimeError(f"OpenAI call failed after {max_retries} retries.")
-        # ------------------------------------------------------------------
-        # Utility helpers
-        # ------------------------------------------------------------------
+        raise RuntimeError(f"Azure OpenAI call failed after {max_retries} retries.")
+
+    # ------------------------------------------------------------------
+    # Utility helpers
+    # ------------------------------------------------------------------
 
     def list_models(self) -> list[Dict[str, Any]]:
-        """Return the list of models available to the configured API key.
-
-        This mirrors the OpenAI `/v1/models` endpoint and returns the raw
-        ``data`` field so callers can inspect model ids, ownership, etc.
-        """
-
-        url = "https://api.openai.com/v1/models"
-        headers: Dict[str, str] = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.config.OPENAI_API_KEY}",
-        }
-
-        response = requests.get(url, headers=headers, timeout=120)
-        response.raise_for_status()
-        body: Dict[str, Any] = response.json()
-        # the OpenAI API returns a top-level `data` list containing models
-        return body.get("data", [])
+        """Return the list of active Azure deployments."""
+        return [
+            {
+                "id": "gpt-4.1",
+                "object": "model",
+                "owned_by": "azure",
+                "url": self.config.AZURE_OPENAI_DEPLOYMENT_41,
+            },
+            {
+                "id": "gpt-4.1-mini",
+                "object": "model",
+                "owned_by": "azure",
+                "url": self.config.AZURE_OPENAI_DEPLOYMENT_41_MINI,
+            },
+            # {"id": "gpt-5-codex", "owned_by": "azure", "url": self.config.AZURE_OPENAI_DEPLOYMENT_GPT5_CODEX},
+            # {"id": "o3",          "owned_by": "azure", "url": self.config.AZURE_OPENAI_DEPLOYMENT_O3},
+            # {"id": "gpt-5.1",     "owned_by": "azure", "url": self.config.AZURE_OPENAI_DEPLOYMENT_GPT5},
+        ]
