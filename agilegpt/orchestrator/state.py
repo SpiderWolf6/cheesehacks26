@@ -53,6 +53,7 @@ class SprintRecord(BaseModel):
     jira_sprint_id: Optional[int] = None                         # JIRA sprint ID (None if JIRA creation failed)
     jira_task_ids: Dict[str, str] = Field(default_factory=dict)  # {plan_task_id: jira_task_id}
     task_results: Dict[str, str] = Field(default_factory=dict)   # {task_id: "DONE" or "FAILED"}
+    task_summaries: Dict[str, str] = Field(default_factory=dict) # {task_id: agent summary / error details}
     status: str = "pending"                                      # "pending" | "in_progress" | "completed"
 
 
@@ -101,3 +102,16 @@ class ProjectState(BaseModel):
 
     # Whether requirements.txt has been written and pip-installed in the workspace venv.
     requirements_written: bool = False
+
+    # FSM tracking fields per architecture.md
+    fsm_phase: str = "INIT"
+    completed_states: List[str] = Field(default_factory=list)
+
+    # Specs document from PO agent
+    specs_doc: Optional[str] = None
+
+    # Architecture output from Architect agent
+    architecture_output: Optional[str] = None
+
+    # URL where the completed site is running
+    site_url: Optional[str] = None

@@ -25,7 +25,7 @@ class BaseAgent:
     """Shared agent behavior — the parent class that all specialized agents inherit from.
 
     Each agent has:
-    - A name (e.g., "pm_agent", "backend_agent") for identification and logging.
+    - A name (e.g., "pl_agent", "backend_agent") for identification and logging.
     - A system prompt — the detailed instructions that shape how the AI responds.
       This is where the agent's "personality" and expertise are defined.
     - Access to the LLM service — the connection to the AI model (e.g., Codex).

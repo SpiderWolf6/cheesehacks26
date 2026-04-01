@@ -9,6 +9,7 @@ import threading
 from datetime import datetime
 from typing import Any, Dict
 from orchestrator.engine import Orchestrator
+from orchestrator.fsm_orchestrator import FSMOrchestrator
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from agents import manager
@@ -17,6 +18,7 @@ from services import rag_service
 app = Flask(__name__)
 CORS(app)
 orch = Orchestrator()
+fsm_orch = FSMOrchestrator()
 
 # ---------------------------------------------------------------------------
 # Health
@@ -170,11 +172,11 @@ def confirm_and_handoff(session_id: str) -> Any:
     # Generate PM handoff paragraph
     pm_context = rag_service.build_pm_context(profile)
     print(pm_context)
-    # Run the full pipeline in a background thread so this endpoint returns
-    # immediately and the frontend can start polling /pipeline/status.
+    # Run the FSM-driven pipeline in a background thread so this endpoint
+    # returns immediately and the frontend can start polling /pipeline/status.
     def run_pipeline() -> None:
         try:
-            orch.run_full_pipeline(session_id, pm_context)
+            fsm_orch.run_pipeline(session_id, pm_context)
         except Exception as exc:
             import logging
             logging.getLogger(__name__).error("Pipeline error for %s: %s", session_id, exc)
@@ -210,11 +212,12 @@ def pipeline_status(session_id: str) -> Any:
       ]
     }
     """
-    state = orch.active_projects.get(session_id)
+    state = fsm_orch.active_projects.get(session_id)
     if not state:
         # Pipeline hasn't started yet (thread hasn't called start_project yet)
         return jsonify({
             "session_id": session_id,
+            "fsm_phase": "PENDING",
             "is_planning": True,
             "current_sprint": 0,
             "total_sprints": 0,
@@ -234,13 +237,17 @@ def pipeline_status(session_id: str) -> Any:
             "status": record.status if record else "pending",
         })
 
-    return jsonify({
+    response = {
         "session_id": session_id,
+        "fsm_phase": state.fsm_phase,
         "is_planning": state.total_sprints == 0,
         "current_sprint": state.current_sprint,
         "total_sprints": state.total_sprints,
         "sprints": sprints_out,
-    })
+    }
+    if state.site_url:
+        response["site_url"] = state.site_url
+    return jsonify(response)
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +267,7 @@ def jira_sprint_issues() -> Any:
     }
     """
     try:
-        issues = orch.jira_issues.get_all(
+        issues = fsm_orch.jira_issues.get_all(
             jql="sprint in openSprints()",
             max_results=50,
         )

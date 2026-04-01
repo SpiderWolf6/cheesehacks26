@@ -29,12 +29,16 @@ class Config:
         self.AZURE_OPENAI_API_KEY: str = os.getenv("AZURE_OPENAI_API_KEY", "")
         self.AZURE_OPENAI_ENDPOINT: str = os.getenv("AZURE_OPENAI_ENDPOINT", "").rstrip("/")
 
-        # Azure deployment URLs, built from the base endpoint.
-        self.AZURE_OPENAI_DEPLOYMENT_41: str = self._deployment_url("gpt-4.1")
-        self.AZURE_OPENAI_DEPLOYMENT_41_MINI: str = self._deployment_url("gpt-4.1-mini")
-        # self.AZURE_OPENAI_DEPLOYMENT_GPT5_CODEX: str = self._deployment_url("gpt-5-codex")
-        # self.AZURE_OPENAI_DEPLOYMENT_O3: str = self._deployment_url("o3")
-        # self.AZURE_OPENAI_DEPLOYMENT_GPT5: str = self._deployment_url("gpt-5")
+        # Azure deployment URLs — read directly from .env, fall back to
+        # constructing from the base endpoint if the env var is not set.
+        self.AZURE_OPENAI_DEPLOYMENT_41: str = (
+            os.getenv("AZURE_OPENAI_DEPLOYMENT_4.1", "")
+            or self._deployment_url("gpt-4.1")
+        )
+        self.AZURE_OPENAI_DEPLOYMENT_41_MINI: str = (
+            os.getenv("AZURE_OPENAI_DEPLOYMENT_4.1_mini", "")
+            or self._deployment_url("gpt-4.1-mini")
+        )
 
         # Legacy OpenAI (replaced by Azure above).
         # self.OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
